@@ -207,7 +207,11 @@ PUBLISH_TOKEN=... scripts/publish.sh --channel eap   # 事前公開チャンネ�
 
 ## ライセンスと同梱物
 
-プラグイン本体は [Apache License 2.0](LICENSE)。
+プラグイン本体は [Apache License 2.0](LICENSE)（Copyright 2026 gekal）。
+
+同梱している XSD が Apache 2.0 なので、本体も同じライセンスに揃えてある。
+Apache 2.0 は特許条項を含むため、BPMN のような仕様を実装するものと相性がよい。
+Marketplace の登録画面でも **Apache 2.0** を選ぶこと。
 
 `src/main/resources/schemas/bpmn/` の XSD は Flowable の `flowable-bpmn-converter`
 （Apache License 2.0）に同梱されているものと同一で、BPMN 2.0 仕様に由来する。

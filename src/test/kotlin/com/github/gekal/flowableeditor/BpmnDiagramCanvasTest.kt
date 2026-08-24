@@ -256,12 +256,18 @@ class BpmnDiagramCanvasTest : BasePlatformTestCase() {
         return image
     }
 
-    private fun countNonBackground(image: BufferedImage): Int {
-        val background = BpmnColors.CANVAS.rgb
+    /**
+     * 格子の点だけを数える。
+     *
+     * 「背景以外」で数えると図形やプレースホルダの文字まで拾ってしまい、
+     * 格子を消しても気付けない。格子の色そのものと突き合わせる。
+     */
+    private fun countGridDots(image: BufferedImage): Int {
+        val grid = BpmnColors.GRID.rgb
         var count = 0
         for (y in 0 until image.height) {
             for (x in 0 until image.width) {
-                if (image.getRGB(x, y) != background) count++
+                if (image.getRGB(x, y) == grid) count++
             }
         }
         return count
@@ -270,18 +276,17 @@ class BpmnDiagramCanvasTest : BasePlatformTestCase() {
     fun `test the grid sits behind the diagram`() {
         canvas.centerContent()
 
-        val image = renderCanvas(width = 520, height = 400, name = "canvas-with-diagram")
+        val dots = countGridDots(renderCanvas(width = 520, height = 400, name = "canvas-with-diagram"))
 
-        assertTrue("図と格子の両方が描かれている", countNonBackground(image) > 100)
+        assertTrue("図の背後に格子がある (見つかった点: $dots)", dots > 100)
     }
 
-    fun `test the canvas paints a grid on the empty area`() {
-        // 図を空にすると、描かれるのは格子だけになる
+    fun `test the grid is drawn on the empty area too`() {
         canvas.setDiagram(BpmnDiagram.EMPTY, fit = false)
 
-        val dots = countNonBackground(renderCanvas())
+        val dots = countGridDots(renderCanvas())
 
-        assertTrue("空のキャンバスにも格子がある (見つかった点: $dots)", dots > 20)
+        assertTrue("図が無くても格子は出る (見つかった点: $dots)", dots > 20)
     }
 
     fun `test the grid keeps a readable spacing at every zoom level`() {
@@ -291,7 +296,7 @@ class BpmnDiagramCanvasTest : BasePlatformTestCase() {
             canvas.resetZoom()
             magnificator().magnify(zoom, Point(0, 0))
 
-            val dots = countNonBackground(renderCanvas())
+            val dots = countGridDots(renderCanvas())
             val area = 320 * 240
             assertTrue("倍率 $zoom で格子が消えている", dots > 20)
             assertTrue("倍率 $zoom で格子が詰まりすぎている ($dots / $area)", dots < area / 20)

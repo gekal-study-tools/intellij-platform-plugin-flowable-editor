@@ -4,6 +4,8 @@ import com.github.gekal.flowableeditor.FlowableBundle
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnEdge
 import com.github.gekal.flowableeditor.model.BpmnNode
+import com.intellij.ui.ClientProperty
+import com.intellij.ui.components.Magnificator
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.Dimension
@@ -17,8 +19,12 @@ import java.awt.event.MouseWheelEvent
 import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
 import javax.swing.JComponent
+import javax.swing.JScrollPane
 import javax.swing.JViewport
+import javax.swing.Scrollable
+import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
@@ -28,7 +34,9 @@ import kotlin.math.roundToInt
  * - 何も無いところをドラッグするとスクロール (パン)
  * - Ctrl/Cmd + ホイールでカーソル位置を中心に拡大縮小
  */
-class BpmnDiagramCanvas : JComponent() {
+class BpmnDiagramCanvas :
+    JComponent(),
+    Scrollable {
 
     companion object {
         private const val MARGIN = 24.0
@@ -41,6 +49,9 @@ class BpmnDiagramCanvas : JComponent() {
 
         /** 接続線のクリック判定に使う許容距離 (モデル座標)。 */
         private const val EDGE_HIT_TOLERANCE = 6.0
+
+        /** ホイール 1 目盛りで動かす量 (px)。 */
+        private const val SCROLL_UNIT = 16
     }
 
     var onElementSelected: ((Any?) -> Unit)? = null
@@ -103,6 +114,7 @@ class BpmnDiagramCanvas : JComponent() {
         addMouseListener(mouse)
         addMouseMotionListener(mouse)
         addMouseWheelListener { e -> handleWheel(e) }
+        installMagnificator()
         toolTipText = ""
     }
 
@@ -167,8 +179,9 @@ class BpmnDiagramCanvas : JComponent() {
 
         zoom = clamped
         revalidate()
-        // スクロール位置を合わせる前にサイズを反映させる (revalidate は非同期のため)
-        size = preferredSize
+        // スクロール位置を合わせる前に、新しい大きさをレイアウトへ反映させる。
+        // revalidate() は次のレイアウトまで効かないので、ここで一度走らせる。
+        viewport?.doLayout()
 
         if (viewport != null && anchor != null && anchorModel != null) {
             // ホイール位置の図形が動かないようスクロール位置を補正する
@@ -185,17 +198,52 @@ class BpmnDiagramCanvas : JComponent() {
         onZoomChanged?.invoke()
     }
 
+    /**
+     * macOS のトラックパッドのピンチ操作に対応する。
+     *
+     * JBScrollPane が使う JBViewport がこのクライアントプロパティを見ており、
+     * ジェスチャ中は拡大した見た目を出したうえで、指を離した時点でここが呼ばれる。
+     * 受け取るのも返すのもビュー座標で、返した点が元の位置に来るよう
+     * ビューポートが自分でスクロールを合わせてくれる。
+     */
+    private fun installMagnificator() {
+        ClientProperty.put(
+            this,
+            Magnificator.CLIENT_PROPERTY_KEY,
+            Magnificator { scale, at ->
+                val (modelX, modelY) = viewToModel(at)
+                // スクロール位置の調整はビューポート側の担当なので anchor は渡さない
+                setZoom(zoom * scale, null)
+                modelToView(modelX, modelY)
+            },
+        )
+    }
+
     private fun handleWheel(e: MouseWheelEvent) {
-        if (!e.isControlDown && !e.isMetaDown) {
-            // 修飾キーが無いときは通常のスクロールとして親に流す
-            val target = parent
-            if (target != null) {
-                target.dispatchEvent(SwingUtilities.convertMouseEvent(this, e, target))
-            }
+        if (!isZoomGesture(e)) {
+            // 2 本指スクロールなどはそのままスクロールとして扱う
+            forwardToScrollPane(e)
             return
         }
-        val factor = if (e.preciseWheelRotation < 0) ZOOM_STEP else 1 / ZOOM_STEP
-        setZoom(zoom * factor, e.point)
+
+        // preciseWheelRotation はトラックパッドだと 1 未満の細かい値になる。
+        // 指数に使うことで、マウスのホイール 1 段は従来どおり、
+        // トラックパッドはなめらかに拡大縮小できる。
+        val rotation = e.preciseWheelRotation
+        if (rotation == 0.0) return
+        setZoom(zoom * ZOOM_STEP.pow(-rotation), e.point)
+        e.consume()
+    }
+
+    /** 修飾キー付きのホイール操作をズームとみなす (macOS は Cmd、その他は Ctrl)。 */
+    private fun isZoomGesture(e: MouseWheelEvent): Boolean = e.isControlDown || e.isMetaDown
+
+    private fun forwardToScrollPane(e: MouseWheelEvent) {
+        // AWT はホイールイベントを「リスナを持つ最も内側のコンポーネント」に配送し、
+        // そこにリスナがある限り親へは流さない (Component.dispatchEventImpl の MOUSE_WHEEL 分岐)。
+        // 拡大縮小のためにリスナを付けている以上、スクロール担当までは自分で送り直す。
+        val scrollPane = SwingUtilities.getAncestorOfClass(JScrollPane::class.java, this) ?: parent ?: return
+        scrollPane.dispatchEvent(SwingUtilities.convertMouseEvent(this, e, scrollPane))
     }
 
     // --- 座標変換 ------------------------------------------------------------
@@ -243,6 +291,27 @@ class BpmnDiagramCanvas : JComponent() {
             ),
         )
     }
+
+    // --- スクロール ----------------------------------------------------------
+
+    override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+
+    override fun getScrollableUnitIncrement(visibleRect: Rectangle, orientation: Int, direction: Int): Int =
+        SCROLL_UNIT
+
+    override fun getScrollableBlockIncrement(visibleRect: Rectangle, orientation: Int, direction: Int): Int =
+        if (orientation == SwingConstants.VERTICAL) visibleRect.height else visibleRect.width
+
+    /**
+     * 図がウィンドウより小さいときはビューポート全体に広がる。
+     * こうしないと図の周りにビューポート自身の背景が覗いて、
+     * キャンバスに縁が付いたように見えてしまう。
+     */
+    override fun getScrollableTracksViewportWidth(): Boolean =
+        (viewport()?.width ?: 0) > preferredSize.width
+
+    override fun getScrollableTracksViewportHeight(): Boolean =
+        (viewport()?.height ?: 0) > preferredSize.height
 
     // --- 描画 ----------------------------------------------------------------
 

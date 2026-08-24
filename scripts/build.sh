@@ -9,6 +9,8 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
+handle_help "${BASH_SOURCE[0]}" "$@"
+
 tasks=()
 args=()
 for arg in "$@"; do

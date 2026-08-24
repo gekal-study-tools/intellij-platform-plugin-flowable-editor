@@ -33,6 +33,24 @@ latest_plugin_zip() {
   ls -t build/distributions/*.zip 2>/dev/null | head -1 || true
 }
 
+# スクリプト先頭のコメント欄をそのまま使い方として出す。
+# 呼び出し側で print_usage "${BASH_SOURCE[0]}" のように渡す。
+print_usage() {
+  awk 'NR == 1 && /^#!/ { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$1"
+}
+
+# --help / -h があれば使い方を出して終わる
+handle_help() {
+  local script="$1"
+  shift
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --help|-h) print_usage "$script"; exit 0 ;;
+    esac
+  done
+}
+
 # OS ごとのファイルオープンコマンド
 open_path() {
   if command -v open >/dev/null 2>&1; then

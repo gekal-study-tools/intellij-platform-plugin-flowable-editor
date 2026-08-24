@@ -10,6 +10,8 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
+handle_help "${BASH_SOURCE[0]}" "$@"
+
 new_version="${1:-}"
 [ -n "$new_version" ] || die "版を指定してください (例: scripts/release.sh 0.2.0)"
 [[ "$new_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$ ]] \

@@ -29,11 +29,25 @@ On top of the preview it adds BPMN-aware editing support:
 | --- | --- |
 | 分割エディタ | 左に XML、右に図。図形クリック ⇄ キャレット移動が双方向に同期する |
 | 自動レイアウト | `bpmndi:BPMNDiagram` を持たない定義でも、シーケンスフローから左→右に階層配置して描画する |
-| 図の操作 | 拡大縮小（Ctrl/Cmd + ホイール）、ウィンドウに合わせる、等倍、PNG 書き出し、空白部分のドラッグでパン |
+| 図の操作 | トラックパッドのピンチで拡大縮小、2 本指スクロールで移動。詳細は下記 |
 | スキーマ補完・検証 | BPMN 2.0 / Flowable 拡張の XSD を同梱。ネットワーク不要 |
 | 参照解決 | `targetRef="approveTask"` から `id="approveTask"` へ Ctrl+クリック。補完も効く |
 | 構造ビュー | プロセスとフロー要素をツリー表示（シーケンスフローは図で見るほうが分かりやすいので省略） |
 | 検査 | 未解決参照 / id 重複 / 開始・終了イベント欠落 / 未接続要素 / タスク設定漏れ / id 欠落 |
+
+## 図の操作
+
+macOS のトラックパッドで、他のアプリと同じ感覚で扱えるようにしてある。
+
+| 操作 | 動作 |
+| --- | --- |
+| ピンチイン / ピンチアウト | 拡大・縮小（指の位置が動かないよう追従する） |
+| 2 本指スクロール（上下・左右） | 図の移動 |
+| Cmd + スクロール（Windows / Linux は Ctrl） | 拡大・縮小。トラックパッドではなめらかに、マウスのホイールは 1 段ずつ |
+| 何もない場所をドラッグ | 図の移動 |
+| 図形をクリック | XML の該当箇所にキャレットを移す |
+
+ツールバーには拡大・縮小・ウィンドウに合わせる・等倍・PNG 書き出し・再読み込みを置いてある。
 
 ## 対応ファイル
 
@@ -55,7 +69,7 @@ On top of the preview it adds BPMN-aware editing support:
 | `scripts/lint.sh` | ktlint でコードスタイルを検査する（`--fix` で自動修正） |
 | `scripts/verify.sh` | Plugin Verifier をかけ、IDE ごとの判定を一覧表示する |
 | `scripts/run-ide.sh` | サンドボックス IDE を起動してプラグインを試す |
-| `scripts/install.sh` | ビルドした zip をローカルの JetBrains IDE に入れる |
+| `scripts/install.sh` | ビルドしてローカルの JetBrains IDE に入れる（`--restart` で IDE 再起動まで） |
 | `scripts/render.sh` | テスト用 BPMN を PNG に描き出して目視確認する |
 | `scripts/release.sh` | 版を上げて CHANGELOG を確定し、コミットする |
 
@@ -65,9 +79,20 @@ scripts/lint.sh --fix           # 整形
 scripts/run-ide.sh              # サンドボックスで動かす
 
 scripts/install.sh --list       # 手元の IDE を探す
-scripts/install.sh              # いちばん新しい IDE に入れる（要 IDE 再起動）
+scripts/install.sh              # ビルドして、いちばん新しい IDE に入れる
+scripts/install.sh --restart    # 入れたあと IDE も再起動する
+scripts/install.sh --clean      # クリーンビルドしてから入れる
+scripts/install.sh --no-build   # 今ある zip をそのまま入れる
 scripts/install.sh "$HOME/Library/Application Support/JetBrains/IntelliJIdea2025.2/plugins"
 ```
+
+どのスクリプトも `--help` で使い方が出る。
+
+`install.sh` は古い版を入れてしまう事故を防ぐため、既定で毎回ビルドする
+（変更が無ければ Gradle が省くので、ほぼ待たされない）。
+`--restart` は macOS 専用で、`product-info.json` の設定ディレクトリ名を見て
+入れ先に対応する IDE だけを終了・再起動する。未保存の確認ダイアログなどで
+終了できなかった場合は、プラグインだけ入れて手動再起動を促す。
 
 素の Gradle でも同じことができる（`./gradlew buildPlugin check verifyPlugin runIde`）。
 `.run/` にある実行構成（Run Plugin / Run Tests / Run Verifications）もそのまま使える。

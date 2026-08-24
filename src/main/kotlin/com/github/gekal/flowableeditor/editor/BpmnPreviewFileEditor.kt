@@ -85,8 +85,15 @@ class BpmnPreviewFileEditor(
     private var firstUpdate = true
 
     init {
+        // JBScrollPane 経由で置くこと。macOS のピンチ操作は JBViewport が仲介する。
+        val scrollPane = JBScrollPane(canvas)
+        scrollPane.border = JBUI.Borders.empty()
+        // 図がビューポートより小さいときに縁が覗かないよう、背景を合わせておく
+        scrollPane.viewport.background = BpmnColors.CANVAS
+        scrollPane.background = BpmnColors.CANVAS
+
         rootPanel.add(createToolbar(), BorderLayout.NORTH)
-        rootPanel.add(JBScrollPane(canvas), BorderLayout.CENTER)
+        rootPanel.add(scrollPane, BorderLayout.CENTER)
         rootPanel.add(statusLabel, BorderLayout.SOUTH)
 
         canvas.onElementSelected = ::onDiagramSelection

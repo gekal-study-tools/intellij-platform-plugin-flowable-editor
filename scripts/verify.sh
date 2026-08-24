@@ -9,6 +9,8 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
+handle_help "${BASH_SOURCE[0]}" "$@"
+
 info "Plugin Verifier を実行します (初回は IDE のダウンロードで時間がかかります)"
 status=0
 "$GRADLE" verifyPlugin "$@" || status=$?

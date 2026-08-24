@@ -10,6 +10,8 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
+handle_help "${BASH_SOURCE[0]}" "$@"
+
 output="build/reports/bpmn-render"
 
 info "描画テストを実行します"

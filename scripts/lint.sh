@@ -9,6 +9,8 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
+handle_help "${BASH_SOURCE[0]}" "$@"
+
 if [ "${1:-}" = "--fix" ]; then
   info "コードスタイルを自動修正します"
   "$GRADLE" ktlintFormat

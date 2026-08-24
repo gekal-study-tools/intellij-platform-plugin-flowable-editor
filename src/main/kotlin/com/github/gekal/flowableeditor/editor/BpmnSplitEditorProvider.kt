@@ -24,8 +24,7 @@ class BpmnSplitEditorProvider : FileEditorProvider, DumbAware {
 
     override fun createEditor(project: Project, file: VirtualFile): FileEditor {
         val textEditor = TextEditorProvider.getInstance().createEditor(project, file) as TextEditor
-        val preview = BpmnPreviewFileEditor(project, file, textEditor)
-        return BpmnTextEditorWithPreview(textEditor, preview)
+        return BpmnTextEditorWithPreview(textEditor, BpmnPreviewFileEditor(project, file, textEditor))
     }
 
     override fun getEditorTypeId(): String = "flowable-bpmn-editor"
@@ -33,9 +32,18 @@ class BpmnSplitEditorProvider : FileEditorProvider, DumbAware {
     override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.HIDE_DEFAULT_EDITOR
 }
 
-class BpmnTextEditorWithPreview(editor: TextEditor, preview: FileEditor) : TextEditorWithPreview(
+/**
+ * XML エディタと図プレビューを左右に並べたエディタ。
+ *
+ * [bpmnPreview] を持たせているのは、プラットフォームの取得子に頼らず
+ * 型の付いたままプレビュー側へ辿れるようにするため。
+ */
+class BpmnTextEditorWithPreview(
+    editor: TextEditor,
+    val bpmnPreview: BpmnPreviewFileEditor,
+) : TextEditorWithPreview(
     editor,
-    preview,
+    bpmnPreview,
     FlowableBundle.message("editor.name"),
     Layout.SHOW_EDITOR_AND_PREVIEW,
 )

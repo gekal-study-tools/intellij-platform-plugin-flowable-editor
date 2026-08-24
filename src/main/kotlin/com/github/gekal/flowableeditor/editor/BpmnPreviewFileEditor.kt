@@ -37,6 +37,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.Alarm
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.JBUI
+import org.jetbrains.annotations.TestOnly
 import java.awt.BorderLayout
 import java.beans.PropertyChangeListener
 import java.io.IOException
@@ -66,6 +67,12 @@ class BpmnPreviewFileEditor(
         private const val MAX_FILE_SIZE = 5L * 1024 * 1024
 
         private const val EXPORT_SCALE = 2.0
+
+        /**
+         * 再パースをまとめるためのキーの片割れ。
+         * このプラグイン固有の物を混ぜて、他所の処理と衝突しないようにする。
+         */
+        private val COALESCE_KEY = Any()
     }
 
     private val canvas = BpmnDiagramCanvas()
@@ -122,13 +129,15 @@ class BpmnPreviewFileEditor(
 
             // パースはバックグラウンドで行い、EDT は図の差し替えだけを担当する。
             // coalesceBy により、連続した編集では最後の 1 回だけが生き残る。
+            // キーは 2 つ渡すこと。FileEditor や Project は「共通すぎるキー」として
+            // 単独では拒否され、IllegalArgumentException になる。
             ReadAction.nonBlocking<BpmnDiagram> {
                 val psiFile = PsiManager.getInstance(project).findFile(file) as? XmlFile
                     ?: return@nonBlocking BpmnDiagram.EMPTY
                 BpmnModelParser.parse(psiFile)
             }
                 .expireWith(this)
-                .coalesceBy(this)
+                .coalesceBy(COALESCE_KEY, this)
                 .finishOnUiThread(ModalityState.defaultModalityState()) { diagram ->
                     canvas.setDiagram(diagram, fit = firstUpdate)
                     firstUpdate = false
@@ -137,6 +146,14 @@ class BpmnPreviewFileEditor(
                 .submit(AppExecutorUtil.getAppExecutorService())
         }
     }
+
+    /** 遅延を挟まずに図を組み直す。テストから同期的に走らせるために分けている。 */
+    @TestOnly
+    internal fun refreshNow() = updateDiagram()
+
+    /** 現在プレビューが持っている図。 */
+    @TestOnly
+    internal fun currentDiagram(): BpmnDiagram = canvas.getDiagram()
 
     private fun updateStatus() {
         val diagram = canvas.getDiagram()

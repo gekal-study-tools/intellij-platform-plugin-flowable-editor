@@ -1,6 +1,8 @@
 # Flowable BPMN Editor
 
 ![Build](https://github.com/gekal-study-tools/intellij-platform-plugin-flowable-editor/workflows/Build/badge.svg)
+[![Version](https://img.shields.io/jetbrains/plugin/v/33780.svg)](https://plugins.jetbrains.com/plugin/33780)
+[![Downloads](https://img.shields.io/jetbrains/plugin/d/33780.svg)](https://plugins.jetbrains.com/plugin/33780)
 
 <!-- Plugin description -->
 Edit [Flowable](https://www.flowable.com/) BPMN 2.0 process definitions inside IntelliJ IDEA.
@@ -142,17 +144,34 @@ src/test/testData/  検査・描画テスト用の BPMN 定義
 初回だけは Marketplace の画面から手で上げる決まりになっている。
 2 回目以降は GitHub Actions が自動で公開する。
 
-### 1. 初回アップロード（手動）
+### 1. 初回アップロード（済み）
+
+登録済み: **[plugins.jetbrains.com/plugin/33780](https://plugins.jetbrains.com/plugin/33780)**（xmlId `com.github.gekal.flowableeditor`）
+
+以下は初回に実際に通った手順。次に別のプラグインを出すときのために残しておく。
 
 ```bash
 scripts/build.sh --clean          # build/distributions/*.zip ができる
 ```
 
-1. [plugins.jetbrains.com/plugin/add](https://plugins.jetbrains.com/plugin/add) を開き、
-   JetBrains アカウントでログインする
-2. 上でできた zip をアップロードする
-3. ライセンスに **Apache 2.0**、カテゴリに **Editor** あたりを選ぶ
-4. 送信すると JetBrains の審査に入る（数営業日）。承認されるまで公開ページは出ない
+1. [plugins.jetbrains.com/plugin/add](https://plugins.jetbrains.com/plugin/add) を開く
+2. zip をアップロードし、ライセンスに **Apache 2.0**、タグに **Editor** を選ぶ
+3. 送信すると JetBrains の審査に入る（数営業日）。承認されるまで公開ページは出ない
+
+**つまずいた点（重要）**
+
+- **Source code URL はオープンソースライセンスを選ぶと必須**になる。
+  そのためリポジトリは public でなければならない（private だと審査でも 404 になる）。
+- **Vendor Status を先にベンダー側（`/vendor/<id>/edit`）で確定しておく必要がある。**
+  未設定のまま（`Vendor Status not provided`）だとアップロードが
+  「郵便番号 / 住所 / 市区町村 / 電話番号の形式が不正」という 4 つのエラーで弾かれる。
+  アップロード画面で Non-trader を選ぶだけでは解消しない。
+  Trader を選んで住所・電話を正しい書式で埋めると通った。
+  書式は半角のみで、電話番号は**ハイフン不可**（数字・空白・先頭の `+` のみ）、
+  市区町村は大文字始まり。
+- **Trader を選ぶと氏名・メール・住所・電話が利用者に表示される。**
+  公開範囲を絞りたい場合は、レコードが正しく埋まった後で Non-trader に
+  戻せるか試すとよい。
 
 審査では第三者製品名の扱いが見られる。プラグインの説明文には
 「非公式であり Flowable AG とは無関係」「Flowable は Flowable AG の商標」を明記してある。

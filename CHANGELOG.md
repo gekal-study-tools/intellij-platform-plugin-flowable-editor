@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-25
+
 ### Added
 
 - Split editor for `*.bpmn`, `*.bpmn20.xml` and any XML file in the BPMN 2.0 namespace: XML on the left, a live diagram on the right, with clicks and caret moves synchronised both ways.
@@ -28,3 +30,8 @@
   <br/>検査 6 種。未解決参照、id 重複、開始・終了イベントの欠落、未接続要素、タスクの設定漏れ、id 欠落（id 欠落には自動生成のクイックフィックス付き）。
 - "Flowable BPMN Process" file template in the New menu.
   <br/>「New」メニューからのプロセス定義テンプレート生成。
+- Pre-release channel publishing allocates a build number automatically (`0.2.0-eap.1`, `-eap.2`, ...), so the same version is never uploaded twice.
+  <br/>事前公開チャンネルへの公開でビルド番号を自動採番する（`0.2.0-eap.1`, `-eap.2` ...）。同じ版を二度上げてしまうことがなくなる。
+
+[Unreleased]: https://github.com/gekal-study-tools/intellij-platform-plugin-flowable-editor/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gekal-study-tools/intellij-platform-plugin-flowable-editor/commits/v0.1.0

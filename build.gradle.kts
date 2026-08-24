@@ -16,6 +16,19 @@ kotlin {
 }
 
 /**
+ * 組み立てる版。既定は gradle.properties の version。
+ *
+ * Marketplace は同じ版を上書きできないため、EAP のように何度も出すチャンネルでは
+ * `-PpluginVersion=0.2.0-eap.3` のようにビルド番号付きの版を渡す。
+ * 番号の採番は scripts/publish.sh が行う。
+ */
+val pluginVersion: Provider<String> = providers.gradleProperty("pluginVersion")
+    .orElse(providers.gradleProperty("version"))
+
+// zip の名前と plugin.xml の版を揃えるため、プロジェクトの版も上書きする
+version = pluginVersion.get()
+
+/**
  * ktlint はサードパーティの Gradle プラグインを挟まず、CLI を直接呼ぶ。
  * 構成キャッシュとの相性が良く、更新も版番号 1 か所で済む。
  */
@@ -42,7 +55,7 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
-        version = providers.gradleProperty("version")
+        version = pluginVersion
 
         // Take the plugin description from README.md between the marker comments.
         description = providers.fileContents(layout.projectDirectory.file("README.md")).asText.map {
@@ -58,11 +71,12 @@ intellijPlatform {
         }
 
         val changelog = project.changelog
-        // Take the change notes from the latest CHANGELOG.md release entry.
-        changeNotes = providers.gradleProperty("version").map { pluginVersion ->
+        // 更新履歴は素の版で引く。EAP の版 (0.2.0-eap.3) は CHANGELOG に無いので、
+        // その場合は Unreleased の内容がそのまま載る。
+        changeNotes = providers.gradleProperty("version").map { releaseVersion ->
             with(changelog) {
                 renderItem(
-                    (getOrNull(pluginVersion) ?: getUnreleased())
+                    (getOrNull(releaseVersion) ?: getUnreleased())
                         .withHeader(false)
                         .withEmptySections(false),
                     Changelog.OutputType.HTML,

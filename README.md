@@ -203,11 +203,43 @@ Marketplace へ上げる。
 **手元から直接**
 
 ```bash
-scripts/publish.sh --status                  # 公開中の版を見る
+scripts/publish.sh --status                      # 公開中の版を見る
 PUBLISH_TOKEN=... scripts/publish.sh --dry-run   # 事前確認だけ
-PUBLISH_TOKEN=... scripts/publish.sh             # 公開する
+PUBLISH_TOKEN=... scripts/publish.sh             # 安定版として公開する
 PUBLISH_TOKEN=... scripts/publish.sh --channel eap   # 事前公開チャンネルへ
 ```
+
+### 事前公開チャンネル（EAP）と版の採番
+
+Marketplace は**同じ版を上げ直せない**。EAP のように同じ内容を何度も出す
+チャンネルでは、素の版のままだと 2 回目から必ず失敗する。
+
+そのため `--channel` を付けたときは、公開済みの一覧を見て
+**ビルド番号を自動で進めた版**を組み立てる。
+
+```
+gradle.properties の version = 0.2.0
+
+1 回目: scripts/publish.sh --channel eap  ->  0.2.0-eap.1
+2 回目: scripts/publish.sh --channel eap  ->  0.2.0-eap.2
+3 回目: scripts/publish.sh --channel eap  ->  0.2.0-eap.3
+```
+
+番号は Marketplace の公開済みバージョンから次の空き番号を選ぶので、
+手元の状態に依存せず、続けて実行しても衝突しない。
+チャンネル名はそのまま使われるので `--channel beta` なら `0.2.0-beta.1` になる。
+
+版は `-PpluginVersion` で Gradle に渡され、zip の名前と `plugin.xml` の
+`<version>` の両方に反映される。手動で組み立てたいときは同じように渡せる。
+
+```bash
+./gradlew buildPlugin -PpluginVersion=0.2.0-eap.3
+```
+
+素の版（`0.2.0`）がすでに公開されている状態で EAP を出そうとすると警告する。
+`0.2.0-eap.1` は版の比較では `0.2.0` より**前**として扱われるため、
+次の版に向けた事前公開なら先に `gradle.properties` の `version` を上げておく。
+更新履歴は素の版で引くので、EAP には `Unreleased` の内容が載る。
 
 公開前に次を自動で確かめる。
 

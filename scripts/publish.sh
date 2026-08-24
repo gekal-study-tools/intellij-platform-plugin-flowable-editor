@@ -4,6 +4,10 @@
 #
 #   scripts/publish.sh                 安定版として公開する
 #   scripts/publish.sh --channel eap   事前公開チャンネルに出す
+#
+# Marketplace は同じ版を上書きできない。EAP のように何度も出すチャンネルでは
+# 素の版にビルド番号を足した版 (0.2.0-eap.1, 0.2.0-eap.2 ...) を自動で採番する。
+# 番号は公開済みの一覧から次の空き番号を選ぶので、続けて実行しても衝突しない。
 #   scripts/publish.sh --dry-run       公開せず、事前確認だけ行う
 #   scripts/publish.sh --status        公開中のバージョンを見る
 #
@@ -52,6 +56,25 @@ updates = data if isinstance(data, list) else data.get('updates', [])
 for u in updates:
     print(u.get('version', ''))
 " 2>/dev/null
+}
+
+# チャンネル向けに、まだ使われていないビルド番号付きの版を組み立てる。
+# 例: 素の版 0.2.0 / チャンネル eap で、0.2.0-eap.1 と 0.2.0-eap.2 が公開済みなら
+#     0.2.0-eap.3 を返す。
+next_channel_version() {
+  local base="$1" channel="$2" versions="$3" max=0 number
+  while IFS= read -r candidate; do
+    case "$candidate" in
+      "$base-$channel".*)
+        number="${candidate##*.}"
+        case "$number" in
+          '' | *[!0-9]*) continue ;;
+        esac
+        [ "$number" -gt "$max" ] && max="$number"
+        ;;
+    esac
+  done <<< "$versions"
+  printf '%s-%s.%s\n' "$base" "$channel" "$((max + 1))"
 }
 
 channel="default"
@@ -107,29 +130,46 @@ if $status_only; then
   exit 0
 fi
 
-if printf '%s\n' "$versions" | grep -qx "$version"; then
-  die "バージョン $version はすでに公開されています。gradle.properties の version を上げてください (scripts/release.sh)"
+# --- 出す版を決める ---
+gradle_args=()
+if [ "$channel" = "default" ]; then
+  publish_version="$version"
+else
+  # 同じ版を上げ直せないので、チャンネルごとにビルド番号を進める
+  publish_version="$(next_channel_version "$version" "$channel" "$versions")"
+  info "チャンネル '$channel' 向けの版: $publish_version"
+  gradle_args+=("-PpublishChannel=$channel" "-PpluginVersion=$publish_version")
+
+  if printf '%s\n' "$versions" | grep -qx "$version"; then
+    warn "素の版 $version はすでに公開されています"
+    warn "$publish_version は版の比較では $version より前として扱われます"
+    warn "次の版に向けた事前公開なら、先に gradle.properties の version を上げてください"
+  fi
+fi
+
+if printf '%s\n' "$versions" | grep -qx "$publish_version"; then
+  die "バージョン $publish_version はすでに公開されています。gradle.properties の version を上げてください (scripts/release.sh)"
 fi
 
 # --- 公開前の確認 ---
 [ -n "${PUBLISH_TOKEN:-}" ] || die "PUBLISH_TOKEN が設定されていません (https://plugins.jetbrains.com/author/me/tokens)"
 
 info "検証します"
-"$GRADLE" check verifyPlugin
+"$GRADLE" check verifyPlugin ${gradle_args[@]+"${gradle_args[@]}"}
 
 if $dry_run; then
   echo
   ok "事前確認は通りました"
   dim "--dry-run のため公開しません。実行するには --dry-run を外してください"
-  dim "  $latest -> $version (チャンネル: $channel)"
+  dim "  $latest -> $publish_version (チャンネル: $channel)"
   exit 0
 fi
 
-info "$version をチャンネル '$channel' に公開します"
+info "$publish_version をチャンネル '$channel' に公開します"
 if [ "$channel" = "default" ]; then
   "$GRADLE" publishPlugin
 else
-  "$GRADLE" publishPlugin "-PpublishChannel=$channel"
+  "$GRADLE" publishPlugin ${gradle_args[@]+"${gradle_args[@]}"}
 fi
 
 ok "公開しました: https://plugins.jetbrains.com/plugin/$numeric_id"

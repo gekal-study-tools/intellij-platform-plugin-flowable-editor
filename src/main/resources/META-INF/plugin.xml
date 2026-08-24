@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.github.gekal.flowableeditor</id>
     <name>Flowable BPMN Editor</name>
-    <vendor>gekal</vendor>
+    <vendor url="https://github.com/gekal-study-tools/intellij-platform-plugin-flowable-editor">gekal</vendor>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.xml</depends>

@@ -21,6 +21,13 @@ On top of the preview it adds BPMN-aware editing support:
   disconnected flow elements, service and user tasks missing their Flowable configuration, and
   elements without an id (with a quick fix that generates one).
 - A "Flowable BPMN Process" file template in the New menu.
+
+The preview is read-only: shapes are not draggable, and every edit happens in the XML.
+Only BPMN is supported - DMN, CMMN and Flowable Form files are out of scope.
+
+<em>This is an unofficial, community-maintained plugin. It is not affiliated with,
+endorsed by, or supported by Flowable AG. "Flowable" is a trademark of Flowable AG
+and is used here only to describe what the plugin works with.</em>
 <!-- Plugin description end -->
 
 ## できること
@@ -119,6 +126,48 @@ src/main/kotlin/com/github/gekal/flowableeditor/
 scripts/         開発用のシェルスクリプト
 src/test/testData/  検査・描画テスト用の BPMN 定義
 ```
+
+## 公開 (JetBrains Marketplace)
+
+初回だけは Marketplace の画面から手で上げる決まりになっている。
+2 回目以降は GitHub Actions が自動で公開する。
+
+### 1. 初回アップロード（手動）
+
+```bash
+scripts/build.sh --clean          # build/distributions/*.zip ができる
+```
+
+1. [plugins.jetbrains.com/plugin/add](https://plugins.jetbrains.com/plugin/add) を開き、
+   JetBrains アカウントでログインする
+2. 上でできた zip をアップロードする
+3. ライセンスに **Apache 2.0**、カテゴリに **Editor** あたりを選ぶ
+4. 送信すると JetBrains の審査に入る（数営業日）。承認されるまで公開ページは出ない
+
+審査では第三者製品名の扱いが見られる。プラグインの説明文には
+「非公式であり Flowable AG とは無関係」「Flowable は Flowable AG の商標」を明記してある。
+同梱している XSD の出典と Apache 2.0 表示は
+[`src/main/resources/META-INF/third-party-notices.md`](src/main/resources/META-INF/third-party-notices.md)。
+
+### 2. トークンを GitHub に登録する
+
+1. [Marketplace のトークン発行ページ](https://plugins.jetbrains.com/author/me/tokens) で
+   Permanent Token を作る
+2. リポジトリの Settings → Secrets and variables → Actions に `PUBLISH_TOKEN` として入れる
+
+署名（任意だが推奨）まで行うなら、[Plugin Signing](https://plugins.jetbrains.com/docs/intellij/plugin-signing.html)
+の手順で証明書を作り、`CERTIFICATE_CHAIN` / `PRIVATE_KEY` / `PRIVATE_KEY_PASSWORD` も登録する。
+`publishPlugin` はこれらの環境変数を既定で読むので、`build.gradle.kts` 側の設定は要らない。
+
+### 3. 2 回目以降
+
+```bash
+scripts/release.sh 0.2.0 --push
+```
+
+push すると Build ワークフローが下書きリリースを作る。
+GitHub でそれを publish すると Release ワークフローが走り、`publishPlugin` が
+Marketplace へ上げる。
 
 ## 制限
 

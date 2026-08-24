@@ -1,0 +1,34 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.{md,xsd,xml,svg,ft}]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
+
+[*.{kt,kts}]
+max_line_length = 120
+
+# IntelliJ の既定フォーマットに寄せる
+ktlint_code_style = intellij_idea
+
+# BasePlatformTestCase は JUnit 3 形式で @Test が付かない。
+# バッククォート付きのテスト名を使うため、この規則は外す。
+ktlint_standard_function-naming = disabled
+
+# 以下は ktlint_official 由来の整形規則。宣言を機械的に複数行へ割るだけで
+# 読みやすさに寄与しないため、このプロジェクトでは使わない。
+ktlint_standard_class-signature = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_argument-list-wrapping = disabled

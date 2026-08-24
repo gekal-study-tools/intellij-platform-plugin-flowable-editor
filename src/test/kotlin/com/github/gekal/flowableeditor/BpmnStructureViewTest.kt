@@ -36,7 +36,10 @@ class BpmnStructureViewTest : BasePlatformTestCase() {
 
     fun `test nests sub process children`() {
         val process = rootChildren("subProcessWithoutDi.bpmn20.xml").single()
-        val subProcess = process.children.first { (it as StructureViewTreeElement).presentation.presentableText == "Review" }
+        val subProcess = process.children.first {
+            (it as StructureViewTreeElement).presentation.presentableText ==
+                "Review"
+        }
 
         assertEquals(listOf("innerStart", "Check", "innerEnd"), labels(subProcess.children.toList()))
     }

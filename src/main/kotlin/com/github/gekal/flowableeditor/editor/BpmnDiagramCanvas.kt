@@ -35,8 +35,10 @@ class BpmnDiagramCanvas : JComponent() {
         const val MIN_ZOOM = 0.2
         const val MAX_ZOOM = 4.0
         private const val ZOOM_STEP = 1.15
+
         /** 「ウィンドウに合わせる」で拡大する上限。 */
         private const val MAX_FIT_ZOOM = 1.5
+
         /** 接続線のクリック判定に使う許容距離 (モデル座標)。 */
         private const val EDGE_HIT_TOLERANCE = 6.0
     }
@@ -221,6 +223,7 @@ class BpmnDiagramCanvas : JComponent() {
     private fun scrollToSelection() {
         val bounds = when (val element = selection) {
             is BpmnNode -> element.bounds?.toRectangle2D()
+
             is BpmnEdge -> element.waypoints.takeIf { it.size >= 2 }?.let { points ->
                 var rect: Rectangle2D = Rectangle2D.Double(points[0].x, points[0].y, 0.0, 0.0)
                 points.forEach { rect = rect.createUnion(Rectangle2D.Double(it.x, it.y, 0.0, 0.0)) }

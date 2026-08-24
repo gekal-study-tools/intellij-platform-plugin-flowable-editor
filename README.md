@@ -46,15 +46,37 @@ On top of the preview it adds BPMN-aware editing support:
 ## 開発
 
 [IntelliJ Platform Plugin Template][template] をベースにしている。
+よく使う操作は `scripts/` にまとめてあるので、基本はこちらを使う。
+
+| スクリプト | 用途 |
+| --- | --- |
+| `scripts/build.sh` | 配布用 zip をビルドする（`--clean` でクリーンビルド） |
+| `scripts/test.sh` | テストを実行する（`scripts/test.sh BpmnModelParserTest` で絞り込み） |
+| `scripts/lint.sh` | ktlint でコードスタイルを検査する（`--fix` で自動修正） |
+| `scripts/verify.sh` | Plugin Verifier をかけ、IDE ごとの判定を一覧表示する |
+| `scripts/run-ide.sh` | サンドボックス IDE を起動してプラグインを試す |
+| `scripts/install.sh` | ビルドした zip をローカルの JetBrains IDE に入れる |
+| `scripts/render.sh` | テスト用 BPMN を PNG に描き出して目視確認する |
+| `scripts/release.sh` | 版を上げて CHANGELOG を確定し、コミットする |
 
 ```bash
-./gradlew runIde        # サンドボックス IDE でプラグインを試す
-./gradlew check         # テスト + 検証
-./gradlew buildPlugin   # build/distributions/*.zip を作る
-./gradlew verifyPlugin  # Plugin Verifier をかける
+scripts/test.sh                 # テスト
+scripts/lint.sh --fix           # 整形
+scripts/run-ide.sh              # サンドボックスで動かす
+
+scripts/install.sh --list       # 手元の IDE を探す
+scripts/install.sh              # いちばん新しい IDE に入れる（要 IDE 再起動）
+scripts/install.sh "$HOME/Library/Application Support/JetBrains/IntelliJIdea2025.2/plugins"
 ```
 
+素の Gradle でも同じことができる（`./gradlew buildPlugin check verifyPlugin runIde`）。
 `.run/` にある実行構成（Run Plugin / Run Tests / Run Verifications）もそのまま使える。
+
+### コードスタイル
+
+ktlint を Gradle から直接呼んでいる（サードパーティのプラグインは挟んでいない）。
+`./gradlew check` に組み込んであるので CI でも検査される。
+規則は `.editorconfig` の `[*.{kt,kts}]` セクションで調整する。
 
 ### 構成
 
@@ -68,6 +90,9 @@ src/main/kotlin/com/github/gekal/flowableeditor/
 ├── structure/   構造ビュー
 ├── schema/      同梱 XSD の登録
 └── actions/     New メニューのアクション
+
+scripts/         開発用のシェルスクリプト
+src/test/testData/  検査・描画テスト用の BPMN 定義
 ```
 
 ## 制限

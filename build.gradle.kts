@@ -1,3 +1,4 @@
+import org.gradle.api.attributes.Bundling
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
@@ -14,8 +15,23 @@ kotlin {
     jvmToolchain(21)
 }
 
+/**
+ * ktlint はサードパーティの Gradle プラグインを挟まず、CLI を直接呼ぶ。
+ * 構成キャッシュとの相性が良く、更新も版番号 1 か所で済む。
+ */
+val ktlint: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
     testImplementation("junit:junit:4.13.2")
+
+    ktlint("com.pinterest.ktlint:ktlint-cli:1.8.0") {
+        attributes {
+            attribute(Bundling.BUNDLING_ATTRIBUTE, objects.named(Bundling.EXTERNAL))
+        }
+    }
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
     intellijPlatform {
@@ -59,4 +75,30 @@ intellijPlatform {
 changelog {
     groups.empty()
     repositoryUrl = providers.gradleProperty("pluginRepositoryUrl")
+}
+
+/** 検査対象。ビルド生成物とテストデータは含めない。 */
+val ktlintSources = listOf("src/**/*.kt", "*.kts")
+
+val ktlintCheck by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Kotlin ソースのコードスタイルを検査する"
+    classpath = ktlint
+    mainClass = "com.pinterest.ktlint.Main"
+    args(ktlintSources)
+    // ktlint が内部で使う Kotlin コンパイラの都合で必要
+    jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+}
+
+val ktlintFormat by tasks.registering(JavaExec::class) {
+    group = "formatting"
+    description = "Kotlin ソースのコードスタイル違反を自動修正する"
+    classpath = ktlint
+    mainClass = "com.pinterest.ktlint.Main"
+    args(listOf("--format") + ktlintSources)
+    jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+}
+
+tasks.check {
+    dependsOn(ktlintCheck)
 }

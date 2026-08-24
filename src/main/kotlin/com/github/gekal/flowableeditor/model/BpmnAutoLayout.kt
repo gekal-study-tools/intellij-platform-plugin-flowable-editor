@@ -11,16 +11,20 @@ object BpmnAutoLayout {
 
     private const val H_GAP = 60.0
     private const val V_GAP = 40.0
+
     /** サブプロセス枠の内側余白。 */
     private const val PADDING = 24.0
+
     /** サブプロセス枠の上部、名前を書く帯の高さ。 */
     private const val HEADER = 24.0
     private const val ORIGIN_X = 40.0
     private const val ORIGIN_Y = 40.0
+
     /** 複数プロセスを縦に並べるときの間隔。 */
     private const val PROCESS_GAP = 80.0
     private const val MIN_CONTAINER_WIDTH = 200.0
     private const val MIN_CONTAINER_HEIGHT = 120.0
+
     /** 循環参照でスタックを掘り進まないための保険。 */
     private const val MAX_DEPTH = 200
 

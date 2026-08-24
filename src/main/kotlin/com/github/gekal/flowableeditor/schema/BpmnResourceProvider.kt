@@ -14,17 +14,23 @@ import com.intellij.javaee.StandardResourceProvider
 class BpmnResourceProvider : StandardResourceProvider {
 
     override fun registerResources(registrar: ResourceRegistrar) {
-        registrar.addStdResource(BpmnNamespaces.MODEL, "/schemas/bpmn/BPMN20.xsd", javaClass.classLoader)
-        registrar.addStdResource(BpmnNamespaces.BPMN_DI, "/schemas/bpmn/BPMNDI.xsd", javaClass.classLoader)
-        registrar.addStdResource(BpmnNamespaces.DC, "/schemas/bpmn/DC.xsd", javaClass.classLoader)
-        registrar.addStdResource(BpmnNamespaces.DI, "/schemas/bpmn/DI.xsd", javaClass.classLoader)
-        registrar.addStdResource(BpmnNamespaces.FLOWABLE, "/schemas/bpmn/flowable-bpmn-extensions.xsd", javaClass.classLoader)
-
-        // schemaLocation に直接書かれることのある URL も同じ XSD に向ける
-        registrar.addStdResource(
-            "http://www.omg.org/spec/BPMN/20100524/MODEL BPMN20.xsd",
-            "/schemas/bpmn/BPMN20.xsd",
-            javaClass.classLoader,
+        // 名前空間 URI (と schemaLocation に直接書かれがちな URL) を同梱 XSD に向ける。
+        // Semantic.xsd は BPMN20.xsd が相対パスで include するため、個別の登録は要らない。
+        val schemas = listOf(
+            BpmnNamespaces.MODEL to "BPMN20.xsd",
+            BpmnNamespaces.BPMN_DI to "BPMNDI.xsd",
+            BpmnNamespaces.DC to "DC.xsd",
+            BpmnNamespaces.DI to "DI.xsd",
+            BpmnNamespaces.FLOWABLE to "flowable-bpmn-extensions.xsd",
+            "${BpmnNamespaces.MODEL} BPMN20.xsd" to "BPMN20.xsd",
         )
+
+        for ((namespace, fileName) in schemas) {
+            registrar.addStdResource(namespace, "$SCHEMA_DIRECTORY/$fileName", javaClass.classLoader)
+        }
+    }
+
+    private companion object {
+        const val SCHEMA_DIRECTORY = "/schemas/bpmn"
     }
 }

@@ -4,9 +4,9 @@ import com.github.gekal.flowableeditor.bpmn.BpmnFiles
 import com.intellij.ide.structureView.StructureViewBuilder
 import com.intellij.ide.structureView.StructureViewModel
 import com.intellij.ide.structureView.TreeBasedStructureViewBuilder
+import com.intellij.ide.structureView.xml.XmlStructureViewBuilderProvider
 import com.intellij.openapi.editor.Editor
 import com.intellij.psi.xml.XmlFile
-import com.intellij.ide.structureView.xml.XmlStructureViewBuilderProvider
 
 /**
  * BPMN ファイルのときだけ独自の構造ビューを返す。

@@ -69,8 +69,11 @@ object BpmnModelParser {
             if (!BpmnNamespaces.isModelNamespace(child.namespace)) continue
             when (val local = child.localName) {
                 "sequenceFlow" -> edges += toEdge(child, BpmnConnectionKind.SEQUENCE_FLOW)
+
                 "association" -> edges += toEdge(child, BpmnConnectionKind.ASSOCIATION)
+
                 "laneSet" -> parseLaneSet(child, containerId, nodes)
+
                 else -> {
                     val kind = BpmnElementKind.fromTagName(local)
                     if (kind == BpmnElementKind.UNKNOWN || kind.isPoolOrLane) continue
@@ -123,7 +126,7 @@ object BpmnModelParser {
             isExpanded = true,
             isMultiInstance = findSubTag(tag, "multiInstanceLoopCharacteristics") != null,
             isSequentialMultiInstance =
-                findSubTag(tag, "multiInstanceLoopCharacteristics")?.getAttributeValue("isSequential") == "true",
+            findSubTag(tag, "multiInstanceLoopCharacteristics")?.getAttributeValue("isSequential") == "true",
             isInterrupting = isInterrupting(tag, kind),
             isForCompensation = tag.getAttributeValue("isForCompensation") == "true",
             textOffset = range.startOffset,
@@ -149,8 +152,10 @@ object BpmnModelParser {
     private fun isInterrupting(tag: XmlTag, kind: BpmnElementKind): Boolean = when (kind) {
         // 境界イベントは cancelActivity="false" で非割り込みになる
         BpmnElementKind.BOUNDARY_EVENT -> tag.getAttributeValue("cancelActivity") != "false"
+
         // イベントサブプロセスの開始イベントは isInterrupting="false" で非割り込み
         BpmnElementKind.START_EVENT -> tag.getAttributeValue("isInterrupting") != "false"
+
         else -> true
     }
 

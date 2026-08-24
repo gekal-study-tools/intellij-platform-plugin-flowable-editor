@@ -1,0 +1,99 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>com.github.gekal.flowableeditor</id>
+    <name>Flowable BPMN Editor</name>
+    <vendor>gekal</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.xml</depends>
+
+    <resource-bundle>messages.FlowableBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- *.bpmn / *.bpmn20.xml を XML として扱いつつ、独自アイコンを付ける -->
+        <fileType
+            name="Flowable BPMN"
+            implementationClass="com.github.gekal.flowableeditor.bpmn.BpmnFileType"
+            fieldName="INSTANCE"
+            language="XML"
+            extensions="bpmn"
+            patterns="*.bpmn20.xml"/>
+
+        <!-- XML エディタ + 図プレビューの分割エディタ -->
+        <fileEditorProvider implementation="com.github.gekal.flowableeditor.editor.BpmnSplitEditorProvider"/>
+
+        <!-- BPMN 2.0 / Flowable 拡張の XSD を同梱し、補完とスキーマ検証をオフラインで効かせる -->
+        <standardResourceProvider implementation="com.github.gekal.flowableeditor.schema.BpmnResourceProvider"/>
+
+        <!-- sourceRef / targetRef などから id 宣言への参照 -->
+        <psi.referenceContributor
+            language="XML"
+            implementation="com.github.gekal.flowableeditor.psi.BpmnReferenceContributor"/>
+
+        <!-- BPMN 向けの構造ビュー (BPMN 以外の XML には影響しない) -->
+        <xmlStructureViewBuilderProvider
+            implementation="com.github.gekal.flowableeditor.structure.BpmnStructureViewBuilderProvider"/>
+
+        <!-- ファイルテンプレート -->
+        <internalFileTemplate name="Flowable BPMN Process"/>
+
+        <!-- 検査 -->
+        <localInspection
+            language="XML"
+            bundle="messages.FlowableBundle"
+            key="inspection.unresolved.reference.display.name"
+            groupKey="inspection.group"
+            enabledByDefault="true"
+            level="WARNING"
+            implementationClass="com.github.gekal.flowableeditor.inspection.BpmnUnresolvedReferenceInspection"/>
+        <localInspection
+            language="XML"
+            bundle="messages.FlowableBundle"
+            key="inspection.duplicate.id.display.name"
+            groupKey="inspection.group"
+            enabledByDefault="true"
+            level="WARNING"
+            implementationClass="com.github.gekal.flowableeditor.inspection.BpmnDuplicateIdInspection"/>
+        <localInspection
+            language="XML"
+            bundle="messages.FlowableBundle"
+            key="inspection.process.structure.display.name"
+            groupKey="inspection.group"
+            enabledByDefault="true"
+            level="WARNING"
+            implementationClass="com.github.gekal.flowableeditor.inspection.BpmnProcessStructureInspection"/>
+        <localInspection
+            language="XML"
+            bundle="messages.FlowableBundle"
+            key="inspection.disconnected.display.name"
+            groupKey="inspection.group"
+            enabledByDefault="true"
+            level="WEAK WARNING"
+            implementationClass="com.github.gekal.flowableeditor.inspection.BpmnDisconnectedElementInspection"/>
+        <localInspection
+            language="XML"
+            bundle="messages.FlowableBundle"
+            key="inspection.task.implementation.display.name"
+            groupKey="inspection.group"
+            enabledByDefault="true"
+            level="WARNING"
+            implementationClass="com.github.gekal.flowableeditor.inspection.BpmnTaskImplementationInspection"/>
+        <localInspection
+            language="XML"
+            bundle="messages.FlowableBundle"
+            key="inspection.missing.id.display.name"
+            groupKey="inspection.group"
+            enabledByDefault="true"
+            level="WARNING"
+            implementationClass="com.github.gekal.flowableeditor.inspection.BpmnMissingIdInspection"/>
+    </extensions>
+
+    <actions>
+        <action
+            id="Flowable.NewBpmnFile"
+            class="com.github.gekal.flowableeditor.actions.NewBpmnFileAction"
+            icon="com.github.gekal.flowableeditor.bpmn.FlowableIcons.BpmnFile">
+            <add-to-group group-id="NewGroup" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

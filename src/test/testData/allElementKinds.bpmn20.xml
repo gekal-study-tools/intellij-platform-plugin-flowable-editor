@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:flowable="http://flowable.org/bpmn"
+             targetNamespace="http://flowable.org/processdef">
+  <process id="showcase" name="Showcase" isExecutable="true">
+    <startEvent id="start" name="Start"/>
+    <sequenceFlow id="s1" sourceRef="start" targetRef="user"/>
+
+    <userTask id="user" name="User task" flowable:candidateGroups="managers"/>
+    <sequenceFlow id="s2" sourceRef="user" targetRef="split"/>
+
+    <parallelGateway id="split" name="Split"/>
+    <sequenceFlow id="s3" sourceRef="split" targetRef="service"/>
+    <sequenceFlow id="s4" sourceRef="split" targetRef="script"/>
+    <sequenceFlow id="s5" sourceRef="split" targetRef="rules"/>
+
+    <serviceTask id="service" name="Service task" flowable:class="com.example.Delegate">
+      <multiInstanceLoopCharacteristics isSequential="false"/>
+    </serviceTask>
+    <scriptTask id="script" name="Script task" scriptFormat="groovy">
+      <script>println 'hi'</script>
+    </scriptTask>
+    <businessRuleTask id="rules" name="Rule task"/>
+
+    <sequenceFlow id="s6" sourceRef="service" targetRef="join"/>
+    <sequenceFlow id="s7" sourceRef="script" targetRef="join"/>
+    <sequenceFlow id="s8" sourceRef="rules" targetRef="join"/>
+
+    <inclusiveGateway id="join" name="Join"/>
+    <sequenceFlow id="s9" sourceRef="join" targetRef="wait"/>
+
+    <intermediateCatchEvent id="wait" name="Wait">
+      <timerEventDefinition>
+        <timeDuration>PT5M</timeDuration>
+      </timerEventDefinition>
+    </intermediateCatchEvent>
+    <sequenceFlow id="s10" sourceRef="wait" targetRef="notify"/>
+
+    <sendTask id="notify" name="Send task"/>
+    <sequenceFlow id="s11" sourceRef="notify" targetRef="nested"/>
+
+    <subProcess id="nested" name="Nested">
+      <startEvent id="nestedStart"/>
+      <sequenceFlow id="n1" sourceRef="nestedStart" targetRef="manual"/>
+      <manualTask id="manual" name="Manual"/>
+      <sequenceFlow id="n2" sourceRef="manual" targetRef="choice"/>
+      <exclusiveGateway id="choice" name="Choice?" default="n4"/>
+      <sequenceFlow id="n3" sourceRef="choice" targetRef="receive">
+        <conditionExpression xsi:type="tFormalExpression"
+                             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${ok}</conditionExpression>
+      </sequenceFlow>
+      <sequenceFlow id="n4" sourceRef="choice" targetRef="nestedEnd"/>
+      <receiveTask id="receive" name="Receive"/>
+      <sequenceFlow id="n5" sourceRef="receive" targetRef="nestedEnd"/>
+      <endEvent id="nestedEnd"/>
+    </subProcess>
+
+    <boundaryEvent id="onError" attachedToRef="nested">
+      <errorEventDefinition errorRef="boomError"/>
+    </boundaryEvent>
+    <boundaryEvent id="onTimeout" attachedToRef="nested" cancelActivity="false">
+      <timerEventDefinition>
+        <timeDuration>PT1H</timeDuration>
+      </timerEventDefinition>
+    </boundaryEvent>
+
+    <sequenceFlow id="s12" sourceRef="nested" targetRef="call"/>
+    <sequenceFlow id="s13" sourceRef="onError" targetRef="terminate"/>
+    <sequenceFlow id="s14" sourceRef="onTimeout" targetRef="escalate"/>
+
+    <callActivity id="call" name="Call activity" calledElement="otherProcess"/>
+    <sequenceFlow id="s15" sourceRef="call" targetRef="end"/>
+
+    <endEvent id="terminate" name="Terminate">
+      <terminateEventDefinition/>
+    </endEvent>
+    <intermediateThrowEvent id="escalate" name="Escalate">
+      <signalEventDefinition signalRef="alarm"/>
+    </intermediateThrowEvent>
+    <sequenceFlow id="s16" sourceRef="escalate" targetRef="end"/>
+
+    <endEvent id="end" name="End">
+      <messageEventDefinition messageRef="doneMessage"/>
+    </endEvent>
+
+    <textAnnotation id="note">
+      <text>This process exercises every shape the painter knows.</text>
+    </textAnnotation>
+    <association id="a1" sourceRef="note" targetRef="user"/>
+  </process>
+
+  <error id="boomError" errorCode="BOOM"/>
+  <signal id="alarm" name="alarm"/>
+  <message id="doneMessage" name="done"/>
+</definitions>

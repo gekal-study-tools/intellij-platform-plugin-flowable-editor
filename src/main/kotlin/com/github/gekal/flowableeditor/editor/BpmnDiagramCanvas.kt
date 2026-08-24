@@ -8,6 +8,7 @@ import com.intellij.ui.ClientProperty
 import com.intellij.ui.components.Magnificator
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import org.jetbrains.annotations.TestOnly
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -24,22 +25,32 @@ import javax.swing.JViewport
 import javax.swing.Scrollable
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
+import kotlin.math.ceil
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
  * BPMN 図を表示するキャンバス。
  *
+ * 図のまわりにはビューポート 1 枚分の余白を持たせてあり、図を画面外まで
+ * 送り出せる。どの向きにも行き止まりが無いので、広い図でも見たい場所へ素直に
+ * 動かせる。図そのものは既定でビューポートの中央に置く。
+ *
  * - 図形クリックで選択し、[onElementSelected] でエディタ側に通知する
- * - 何も無いところをドラッグするとスクロール (パン)
- * - Ctrl/Cmd + ホイールでカーソル位置を中心に拡大縮小
+ * - 何も無いところをドラッグすると移動 (パン)
+ * - トラックパッドのピンチ、または Ctrl/Cmd + ホイールで拡大縮小
  */
 class BpmnDiagramCanvas :
     JComponent(),
     Scrollable {
 
     companion object {
-        private const val MARGIN = 24.0
+        /** 「ウィンドウに合わせる」ときに図の外側へ残す余白。 */
+        private const val FIT_MARGIN = 24.0
+
+        /** PNG 書き出しの余白。 */
+        private const val EXPORT_MARGIN = 24.0
+
         const val MIN_ZOOM = 0.2
         const val MAX_ZOOM = 4.0
         private const val ZOOM_STEP = 1.15
@@ -52,6 +63,19 @@ class BpmnDiagramCanvas :
 
         /** ホイール 1 目盛りで動かす量 (px)。 */
         private const val SCROLL_UNIT = 16
+
+        /**
+         * ビューポートが無い場面 (テストなど) で使う、図のまわりの余白。
+         * 通常はビューポート 1 枚分を使う。
+         */
+        private const val MIN_PADDING = 200.0
+
+        /** 格子の間隔 (モデル座標)。BPMN の図形寸法に合わせた値。 */
+        private const val GRID_MODEL_STEP = 20.0
+
+        /** 画面上での格子の間隔をこの範囲に収める。詰まりすぎ / 空きすぎを防ぐ。 */
+        private const val MIN_GRID_PX = 14.0
+        private const val MAX_GRID_PX = 56.0
     }
 
     var onElementSelected: ((Any?) -> Unit)? = null
@@ -68,7 +92,7 @@ class BpmnDiagramCanvas :
     private var panViewPosition: Point? = null
 
     /**
-     * 「ウィンドウに合わせる」をレイアウト確定後にやり直す必要があるか。
+     * 「ウィンドウに合わせて中央へ」をレイアウト確定後にやり直す必要があるか。
      * エディタを開いた直後はビューポートのサイズがまだ 0 で、
      * そのまま計算すると極端に縮小されてしまう。
      */
@@ -145,29 +169,46 @@ class BpmnDiagramCanvas :
 
     // --- ズーム --------------------------------------------------------------
 
-    fun zoomIn() = setZoom(zoom * ZOOM_STEP, null)
+    fun zoomIn() = setZoom(zoom * ZOOM_STEP, viewportCenter())
 
-    fun zoomOut() = setZoom(zoom / ZOOM_STEP, null)
+    fun zoomOut() = setZoom(zoom / ZOOM_STEP, viewportCenter())
 
-    fun resetZoom() = setZoom(1.0, null)
+    fun resetZoom() = setZoom(1.0, viewportCenter())
 
+    /** 図全体が収まる倍率にして、中央に置く。 */
     fun fitToWindow() {
         val bounds = extent ?: return
         if (bounds.width <= 0 || bounds.height <= 0) return
 
         val viewport = viewport()
-        if (viewport == null || viewport.width <= MARGIN * 2 || viewport.height <= MARGIN * 2) {
+        if (viewport == null || viewport.width <= FIT_MARGIN * 2 || viewport.height <= FIT_MARGIN * 2) {
             // まだ配置されていないので、最初に描画されるときにやり直す
             pendingFit = true
             return
         }
 
         pendingFit = false
-        val scaleX = (viewport.width - MARGIN * 2) / bounds.width
-        val scaleY = (viewport.height - MARGIN * 2) / bounds.height
+        val scaleX = (viewport.width - FIT_MARGIN * 2) / bounds.width
+        val scaleY = (viewport.height - FIT_MARGIN * 2) / bounds.height
         // 小さな図を拡大しすぎても読みやすくならないので上限を設ける
         setZoom(minOf(scaleX, scaleY, MAX_FIT_ZOOM), null)
-        viewport.viewPosition = Point(0, 0)
+        centerContent()
+    }
+
+    /** 図をビューポートの中央に置く。 */
+    fun centerContent() {
+        val bounds = extent ?: return
+        val viewport = viewport() ?: return
+        viewport.doLayout()
+
+        val size = preferredSize
+        val maxX = (size.width - viewport.width).coerceAtLeast(0)
+        val maxY = (size.height - viewport.height).coerceAtLeast(0)
+        viewport.viewPosition = Point(
+            (paddingX() + bounds.width * zoom / 2 - viewport.width / 2.0).roundToInt().coerceIn(0, maxX),
+            (paddingY() + bounds.height * zoom / 2 - viewport.height / 2.0).roundToInt().coerceIn(0, maxY),
+        )
+        repaint()
     }
 
     private fun setZoom(value: Double, anchor: Point?) {
@@ -184,14 +225,14 @@ class BpmnDiagramCanvas :
         viewport?.doLayout()
 
         if (viewport != null && anchor != null && anchorModel != null) {
-            // ホイール位置の図形が動かないようスクロール位置を補正する
+            // 拡大の基点にした図形が動かないようスクロール位置を補正する
             val newViewPoint = modelToView(anchorModel.first, anchorModel.second)
             val current = viewport.viewPosition
-            val offsetInViewport = anchor.y - current.y
-            val offsetXInViewport = anchor.x - current.x
+            val offsetX = anchor.x - current.x
+            val offsetY = anchor.y - current.y
             viewport.viewPosition = Point(
-                (newViewPoint.x - offsetXInViewport).coerceAtLeast(0),
-                (newViewPoint.y - offsetInViewport).coerceAtLeast(0),
+                (newViewPoint.x - offsetX).coerceAtLeast(0),
+                (newViewPoint.y - offsetY).coerceAtLeast(0),
             )
         }
         repaint()
@@ -252,14 +293,26 @@ class BpmnDiagramCanvas :
 
     private fun originY(): Double = extent?.y ?: 0.0
 
+    /**
+     * 図の左右に取る余白。ビューポート 1 枚分あるので、
+     * 図を右端まで送っても左端まで戻しても行き止まりに当たらない。
+     */
+    private fun paddingX(): Double = (viewport()?.width?.toDouble() ?: 0.0).coerceAtLeast(MIN_PADDING)
+
+    private fun paddingY(): Double = (viewport()?.height?.toDouble() ?: 0.0).coerceAtLeast(MIN_PADDING)
+
     private fun modelToView(x: Double, y: Double): Point =
         Point(
-            ((x - originX()) * zoom + MARGIN).roundToInt(),
-            ((y - originY()) * zoom + MARGIN).roundToInt(),
+            ((x - originX()) * zoom + paddingX()).roundToInt(),
+            ((y - originY()) * zoom + paddingY()).roundToInt(),
         )
 
     private fun viewToModel(point: Point): Pair<Double, Double> =
-        (point.x - MARGIN) / zoom + originX() to (point.y - MARGIN) / zoom + originY()
+        (point.x - paddingX()) / zoom + originX() to (point.y - paddingY()) / zoom + originY()
+
+    /** 図の左上がビュー座標のどこに来るか。倍率を変えても余白は変わらない。 */
+    @TestOnly
+    internal fun contentOriginInView(): Point = Point(paddingX().roundToInt(), paddingY().roundToInt())
 
     private fun elementAt(point: Point): Any? {
         val (x, y) = viewToModel(point)
@@ -267,6 +320,12 @@ class BpmnDiagramCanvas :
     }
 
     private fun viewport(): JViewport? = parent as? JViewport
+
+    private fun viewportCenter(): Point? {
+        val viewport = viewport() ?: return null
+        val position = viewport.viewPosition
+        return Point(position.x + viewport.width / 2, position.y + viewport.height / 2)
+    }
 
     private fun scrollToSelection() {
         val bounds = when (val element = selection) {
@@ -302,24 +361,18 @@ class BpmnDiagramCanvas :
     override fun getScrollableBlockIncrement(visibleRect: Rectangle, orientation: Int, direction: Int): Int =
         if (orientation == SwingConstants.VERTICAL) visibleRect.height else visibleRect.width
 
-    /**
-     * 図がウィンドウより小さいときはビューポート全体に広がる。
-     * こうしないと図の周りにビューポート自身の背景が覗いて、
-     * キャンバスに縁が付いたように見えてしまう。
-     */
-    override fun getScrollableTracksViewportWidth(): Boolean =
-        (viewport()?.width ?: 0) > preferredSize.width
+    // 余白を持たせている以上つねにビューポートより大きいので、追従はさせない
+    override fun getScrollableTracksViewportWidth(): Boolean = false
 
-    override fun getScrollableTracksViewportHeight(): Boolean =
-        (viewport()?.height ?: 0) > preferredSize.height
+    override fun getScrollableTracksViewportHeight(): Boolean = false
 
     // --- 描画 ----------------------------------------------------------------
 
     override fun getPreferredSize(): Dimension {
         val bounds = extent ?: return JBUI.size(400, 300)
         return Dimension(
-            (bounds.width * zoom + MARGIN * 2).roundToInt().coerceAtLeast(1),
-            (bounds.height * zoom + MARGIN * 2).roundToInt().coerceAtLeast(1),
+            (bounds.width * zoom + paddingX() * 2).roundToInt().coerceAtLeast(1),
+            (bounds.height * zoom + paddingY() * 2).roundToInt().coerceAtLeast(1),
         )
     }
 
@@ -330,13 +383,14 @@ class BpmnDiagramCanvas :
         try {
             g2.color = BpmnColors.CANVAS
             g2.fillRect(0, 0, width, height)
+            paintGrid(g2)
 
             if (diagram.isEmpty) {
                 paintPlaceholder(g2)
                 return
             }
 
-            g2.translate(MARGIN, MARGIN)
+            g2.translate(paddingX(), paddingY())
             g2.scale(zoom, zoom)
             g2.translate(-originX(), -originY())
             painter().paint(g2, diagram, selection)
@@ -344,6 +398,43 @@ class BpmnDiagramCanvas :
             g2.dispose()
         }
     }
+
+    /**
+     * 点の格子を敷く。
+     *
+     * 図を画面外まで動かせるようにした分、何も無いところでは動いたかどうかが
+     * 分かりにくい。格子があると移動量と拡大率が目で追える。
+     * 描くのは可視範囲だけなので、広いキャンバスでも負荷は増えない。
+     */
+    private fun paintGrid(g: Graphics2D) {
+        val clip = g.clipBounds ?: Rectangle(0, 0, width, height)
+        if (clip.width <= 0 || clip.height <= 0) return
+
+        val step = gridStepPx()
+        g.color = BpmnColors.GRID
+
+        var x = firstGridLine(paddingX(), step, clip.x.toDouble())
+        while (x <= clip.x + clip.width) {
+            var y = firstGridLine(paddingY(), step, clip.y.toDouble())
+            while (y <= clip.y + clip.height) {
+                g.fillRect(x.roundToInt(), y.roundToInt(), 1, 1)
+                y += step
+            }
+            x += step
+        }
+    }
+
+    /** 画面上の間隔が読みやすい範囲に収まるよう、2 の冪で調整した格子の間隔 (px)。 */
+    private fun gridStepPx(): Double {
+        var step = GRID_MODEL_STEP * zoom
+        while (step < MIN_GRID_PX) step *= 2
+        while (step > MAX_GRID_PX) step /= 2
+        return step
+    }
+
+    /** [from] 以上で最初に来る格子線の位置。格子は図の原点に合わせる。 */
+    private fun firstGridLine(anchor: Double, step: Double, from: Double): Double =
+        anchor + ceil((from - anchor) / step) * step
 
     private fun paintPlaceholder(g: Graphics2D) {
         g.color = BpmnColors.MUTED_TEXT
@@ -377,17 +468,20 @@ class BpmnDiagramCanvas :
 
     private fun escape(text: String): String = com.intellij.openapi.util.text.StringUtil.escapeXmlEntities(text)
 
-    /** 現在の図を PNG 用の画像に描き出す。 */
+    /**
+     * 現在の図を PNG 用の画像に描き出す。
+     * 書き出しでは格子を描かない。図だけが欲しい場面で背景の点は邪魔になる。
+     */
     fun renderToImage(scale: Double): BufferedImage? {
         val bounds = extent ?: return null
-        val width = ((bounds.width + MARGIN * 2 / scale) * scale).roundToInt().coerceAtLeast(1)
-        val height = ((bounds.height + MARGIN * 2 / scale) * scale).roundToInt().coerceAtLeast(1)
+        val width = (bounds.width * scale + EXPORT_MARGIN * 2).roundToInt().coerceAtLeast(1)
+        val height = (bounds.height * scale + EXPORT_MARGIN * 2).roundToInt().coerceAtLeast(1)
         val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
         val g = image.createGraphics()
         try {
             g.color = BpmnColors.CANVAS
             g.fillRect(0, 0, width, height)
-            g.translate(MARGIN, MARGIN)
+            g.translate(EXPORT_MARGIN, EXPORT_MARGIN)
             g.scale(scale, scale)
             g.translate(-bounds.x, -bounds.y)
             painter().paint(g, diagram, null)

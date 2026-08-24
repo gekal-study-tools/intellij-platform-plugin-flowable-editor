@@ -70,6 +70,14 @@ intellijPlatform {
             }
         }
     }
+
+    publishing {
+        // 事前公開用のチャンネルに出すとき: ./gradlew publishPlugin -PpublishChannel=eap
+        // 既定 (default) が安定版チャンネル。トークンは PUBLISH_TOKEN 環境変数から読まれる。
+        channels = providers.gradleProperty("publishChannel")
+            .map { listOf(it) }
+            .orElse(listOf("default"))
+    }
 }
 
 changelog {

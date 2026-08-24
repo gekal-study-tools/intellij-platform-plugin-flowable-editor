@@ -88,6 +88,7 @@ macOS のトラックパッドで、他のアプリと同じ感覚で扱える�
 | `scripts/install.sh` | ビルドしてローカルの JetBrains IDE に入れる（`--restart` で IDE 再起動まで） |
 | `scripts/render.sh` | テスト用 BPMN を PNG に描き出して目視確認する |
 | `scripts/release.sh` | 版を上げて CHANGELOG を確定し、コミットする |
+| `scripts/publish.sh` | Marketplace に更新版を公開する（`--status` で公開中の版を確認） |
 
 ```bash
 scripts/test.sh                 # テスト
@@ -168,7 +169,9 @@ scripts/build.sh --clean          # build/distributions/*.zip ができる
 の手順で証明書を作り、`CERTIFICATE_CHAIN` / `PRIVATE_KEY` / `PRIVATE_KEY_PASSWORD` も登録する。
 `publishPlugin` はこれらの環境変数を既定で読むので、`build.gradle.kts` 側の設定は要らない。
 
-### 3. 2 回目以降
+### 3. 2 回目以降（更新）
+
+**GitHub 経由（推奨）**
 
 ```bash
 scripts/release.sh 0.2.0 --push
@@ -177,6 +180,24 @@ scripts/release.sh 0.2.0 --push
 push すると Build ワークフローが下書きリリースを作る。
 GitHub でそれを publish すると Release ワークフローが走り、`publishPlugin` が
 Marketplace へ上げる。
+
+**手元から直接**
+
+```bash
+scripts/publish.sh --status                  # 公開中の版を見る
+PUBLISH_TOKEN=... scripts/publish.sh --dry-run   # 事前確認だけ
+PUBLISH_TOKEN=... scripts/publish.sh             # 公開する
+PUBLISH_TOKEN=... scripts/publish.sh --channel eap   # 事前公開チャンネルへ
+```
+
+公開前に次を自動で確かめる。
+
+- Marketplace に登録済みか（未登録なら初回アップロードの手順を案内して止まる）
+- 手元の版がすでに公開されていないか（重複アップロードは弾かれるため）
+- `PUBLISH_TOKEN` があるか
+- `check` と `verifyPlugin` が通るか
+
+更新版も JetBrains の審査を通ってから配信される。
 
 ## 制限
 

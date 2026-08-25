@@ -39,6 +39,12 @@ object BpmnDocumentEditor {
     /** 取り消し履歴でまとめる単位。連続したドラッグを 1 つにまとめたい場合に使う。 */
     private const val UNDO_GROUP = "flowable.bpmn.diagram.edit"
 
+    /** プールの左端にある、名前を縦書きする帯の幅。 */
+    private const val POOL_LABEL_BAND = 30.0
+
+    /** プールが中身との間に取る余白。 */
+    private const val POOL_PADDING = 20.0
+
     // --- 幾何 ----------------------------------------------------------------
 
     /** 図形の位置と大きさを書き戻す。 */
@@ -58,7 +64,78 @@ object BpmnDocumentEditor {
                 writeShapeBounds(root, id, box)
             }
             rerouteConnected(root, diagram, expanded)
+            updateLaneMembership(root, diagram, expanded)
         }
+    }
+
+    /**
+     * レーンをまたいで動かした要素の所属を書き換える。
+     *
+     * `flowNodeRef` を直さないと、図では別のレーンに見えるのに定義上は元のまま、
+     * という食い違いが残る。Flowable が見るのは定義のほうなので、
+     * 見た目だけ合っている状態はいちばん厄介。
+     */
+    private fun updateLaneMembership(
+        root: XmlTag,
+        diagram: BpmnDiagram,
+        movedBounds: Map<String, BpmnBounds>,
+    ) {
+        val lanes = diagram.nodes.filter { it.kind == BpmnElementKind.LANE && it.id.isNotEmpty() }
+        if (lanes.isEmpty()) return
+
+        for ((id, bounds) in movedBounds) {
+            val node = diagram.nodesById[id] ?: continue
+            // レーンやプール自身、区画に属さないものは対象外
+            if (node.kind.isPoolOrLane) continue
+            if (node.kind == BpmnElementKind.BOUNDARY_EVENT) continue
+
+            val laneId = lanes
+                .firstOrNull { it.bounds?.contains(bounds.centerX, bounds.centerY) == true }
+                ?.id
+            moveFlowNodeRef(root, id, laneId)
+        }
+    }
+
+    /** [elementId] の `flowNodeRef` を [laneId] のレーンだけに置く。 */
+    private fun moveFlowNodeRef(root: XmlTag, elementId: String, laneId: String?) {
+        for (lane in collectLanes(root)) {
+            val ownsIt = lane.getAttributeValue("id") == laneId
+            val existing = lane.subTags.firstOrNull {
+                it.localName == "flowNodeRef" && it.value.trimmedText == elementId
+            }
+            when {
+                ownsIt && existing == null -> {
+                    val ref = lane.createChildTag("flowNodeRef", lane.namespace, elementId, false)
+                    lane.addSubTag(ref, false)
+                }
+
+                !ownsIt && existing != null -> existing.delete()
+            }
+        }
+    }
+
+    /** そのタグの下にある、id を持つ要素すべて。 */
+    private fun collectIds(tag: XmlTag): List<String> {
+        val result = mutableListOf<String>()
+        fun walk(current: XmlTag) {
+            for (child in current.subTags) {
+                child.getAttributeValue("id")?.takeIf { it.isNotBlank() }?.let { result += it }
+                walk(child)
+            }
+        }
+        walk(tag)
+        return result
+    }
+
+    private fun collectLanes(tag: XmlTag): List<XmlTag> {
+        val result = mutableListOf<XmlTag>()
+        for (child in tag.subTags) {
+            if (child.localName == "lane" && BpmnNamespaces.isModelNamespace(child.namespace)) {
+                result += child
+            }
+            result += collectLanes(child)
+        }
+        return result
     }
 
     /**
@@ -330,10 +407,35 @@ object BpmnDocumentEditor {
         added.setAttribute("processRef", processId)
 
         ensureDiagramInterchange(root, diagram)
+        // 既にあるプロセスを包むプールだけ、その要素を囲む大きさにする。
+        // 押した位置のままだと、自分が指すプロセスの外にプールが置かれてしまう。
+        // 2 つ目以降は空のプロセスを指すので、押した位置と大きさをそのまま使う。
+        val wrapsExistingProcess = existing == null
+        val enclosing = if (wrapsExistingProcess) enclosingBounds(diagram) ?: bounds else bounds
         // プールがあるなら、図の面は collaboration を指す
         findPlane(root)?.setAttribute("bpmnElement", collaboration.getAttributeValue("id"))
-        writeShapeBounds(root, id, bounds)
+        writeShapeBounds(root, id, enclosing)
         return id
+    }
+
+    /** 図にある要素をすべて囲む矩形。要素が無ければ null。 */
+    private fun enclosingBounds(diagram: BpmnDiagram): BpmnBounds? {
+        val boxes = diagram.nodes
+            .filter { !it.kind.isPoolOrLane }
+            .mapNotNull { it.bounds }
+        if (boxes.isEmpty()) return null
+
+        val left = boxes.minOf { it.x }
+        val top = boxes.minOf { it.y }
+        val right = boxes.maxOf { it.right }
+        val bottom = boxes.maxOf { it.bottom }
+        // 左に名前を書く帯のぶん、余分に取る
+        return BpmnBounds(
+            left - POOL_LABEL_BAND - POOL_PADDING,
+            top - POOL_PADDING,
+            right - left + POOL_LABEL_BAND + POOL_PADDING * 2,
+            bottom - top + POOL_PADDING * 2,
+        )
     }
 
     private fun createEmptyProcess(file: XmlFile, root: XmlTag): String {
@@ -404,6 +506,19 @@ object BpmnDocumentEditor {
             }
             for (id in doomed.toList()) {
                 collectConnectedFlows(file, id).forEach { doomed += it }
+            }
+
+            // プールを消すときは、それが指すプロセスと中身もまとめて片付ける。
+            // 参照の切れたプロセスだけが残っても使い道がない。
+            for (id in elementIds) {
+                val participant = findModelElement(file, id) ?: continue
+                if (participant.localName != "participant") continue
+                val processId = participant.getAttributeValue("processRef") ?: continue
+                val process = root.subTags.firstOrNull {
+                    it.localName == "process" && it.getAttributeValue("id") == processId
+                } ?: continue
+                collectIds(process).forEach { doomed += it }
+                doomed += processId
             }
 
             for (id in doomed) {

@@ -5,7 +5,7 @@
 #   scripts/release.sh 0.2.0            検証してコミットまで
 #   scripts/release.sh 0.2.0 --push     コミット後に push もする
 #
-# push すると GitHub Actions が下書きのリリースを作る。
+# push すると GitHub Actions が下書きのリリースを作る (タグは v0.2.0 の形)。
 # 公開するとリリース用のワークフローが動く、という流れ。
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -46,6 +46,7 @@ git add gradle.properties CHANGELOG.md
 git commit -m "リリース $new_version"
 
 ok "コミットしました"
+dim "リリースのタグは v$new_version の形になります"
 if $do_push; then
   info "push します"
   git push

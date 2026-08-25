@@ -564,14 +564,41 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
         )
     }
 
-    fun `test rearranging is refused when the diagram has pools`() {
-        val (_, diagram) = open("collaborationWithLanes.bpmn20.xml")
+    fun `test rearranging keeps elements inside their lane`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+        // end を下のレーンへ移す (所属も書き換わる)
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("end" to BpmnBounds(600.0, 270.0, 30.0, 30.0)),
+            "move",
+        )
 
-        assertFalse("プールがある図は整列しない", BpmnAutoLayout.canRelayout(diagram))
+        val arranged = reparse(file)
+        BpmnAutoLayout.relayout(arranged)
+        BpmnDocumentEditor.applyLayout(project, file, arranged, "layout")
 
-        val before = diagram.nodesById.getValue("start").bounds
-        BpmnAutoLayout.relayout(diagram)
-        assertEquals("何も動かさない", before, diagram.nodesById.getValue("start").bounds)
+        val updated = reparse(file)
+        val lane1 = updated.nodesById.getValue("lane1").bounds!!
+        val lane2 = updated.nodesById.getValue("lane2").bounds!!
+        val start = updated.nodesById.getValue("start").bounds!!
+        val end = updated.nodesById.getValue("end").bounds!!
+
+        assertTrue("start は上のレーンに残る", lane1.contains(start.centerX, start.centerY))
+        assertTrue("end は下のレーンに残る", lane2.contains(end.centerX, end.centerY))
+        assertTrue("流れの順は保たれる", start.x < end.x)
+    }
+
+    fun `test rearranging does not shrink the pool below its contents`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+
+        val arranged = reparse(file)
+        BpmnAutoLayout.relayout(arranged)
+        BpmnDocumentEditor.applyLayout(project, file, arranged, "layout")
+
+        val updated = reparse(file)
+        val pool = updated.nodesById.getValue("pool1").bounds!!
+        val rightmost = updated.nodes.filter { !it.kind.isPoolOrLane }.maxOf { it.bounds!!.right }
+        assertTrue("中身がプールからはみ出さない", rightmost <= pool.right)
     }
 
     // --- プールとレーンの作成 ------------------------------------------------
@@ -587,9 +614,20 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
         assertNotNull(id)
         assertTrue("collaboration ができる", file.text.contains("<collaboration"))
         assertTrue("既にあるプロセスを指す", file.text.contains("""processRef="orderProcess""""))
+
         val updated = reparse(file)
-        assertEquals(BpmnElementKind.POOL, updated.nodesById.getValue(id!!).kind)
-        assertEquals(60.0, updated.nodesById.getValue(id).bounds!!.x)
+        val pool = updated.nodesById.getValue(id!!)
+        assertEquals(BpmnElementKind.POOL, pool.kind)
+        // 押した位置ではなく、指しているプロセスの要素を囲む大きさになる
+        val poolBounds = pool.bounds!!
+        for (node in updated.nodes.filter { !it.kind.isPoolOrLane }) {
+            val box = node.bounds!!
+            assertTrue(
+                "${node.id} がプールに収まる (node=$box, pool=$poolBounds)",
+                box.x >= poolBounds.x && box.right <= poolBounds.right &&
+                    box.y >= poolBounds.y && box.bottom <= poolBounds.bottom,
+            )
+        }
     }
 
     fun `test the diagram plane points at the collaboration once a pool exists`() {
@@ -688,5 +726,77 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
 
         assertNotNull(id)
         assertTrue(id!!.startsWith("sequenceFlow"))
+    }
+
+    // --- レーン所属 ----------------------------------------------------------
+
+    fun `test moving an element to another lane rewrites its membership`() {
+        val (file, diagram) = open("collaborationWithLanes.bpmn20.xml")
+        assertTrue("はじめは lane1 に属している", file.text.contains("<flowNodeRef>start</flowNodeRef>"))
+
+        // start を下のレーン (lane2: y 225..350) へ動かす
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("start" to BpmnBounds(180.0, 270.0, 30.0, 30.0)),
+            "move",
+        )
+
+        val lane2 = file.text.substringAfter("""<lane id="lane2"""").substringBefore("</lane>")
+        assertTrue("移動先のレーンに入る", lane2.contains("<flowNodeRef>start</flowNodeRef>"))
+        val lane1 = file.text.substringAfter("""<lane id="lane1"""").substringBefore("</lane>")
+        assertFalse("元のレーンからは外れる", lane1.contains("<flowNodeRef>start</flowNodeRef>"))
+    }
+
+    fun `test an element outside every lane belongs to none`() {
+        val (file, diagram) = open("collaborationWithLanes.bpmn20.xml")
+
+        // プールの外へ出す
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("start" to BpmnBounds(1200.0, 900.0, 30.0, 30.0)),
+            "move",
+        )
+
+        assertFalse("どのレーンにも属さない", file.text.contains("<flowNodeRef>start</flowNodeRef>"))
+    }
+
+    // --- プールの削除 --------------------------------------------------------
+
+    fun `test deleting a pool also removes the process it points at`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+
+        BpmnDocumentEditor.delete(project, file, listOf("pool1"), "delete")
+
+        assertFalse("参照先のプロセスが残らない", file.text.contains("""id="salesProcess""""))
+        assertFalse("中の要素も残らない", file.text.contains("""id="start""""))
+        val updated = reparse(file)
+        assertNull(updated.nodesById["pool1"])
+        assertNull("図形情報も消える", updated.nodesById["start"])
+    }
+
+    // --- 境界イベントの追従 --------------------------------------------------
+
+    fun `test a boundary event stays on the border when the host is resized`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+        val id = BpmnDocumentEditor.createElement(
+            project, file, diagram, BpmnPaletteItem.BOUNDARY_TIMER_EVENT,
+            BpmnBounds(212.0, 137.0, 36.0, 36.0), "approve", "add", attachToId = "approve",
+        )
+
+        // approve (180,75,100,80) を倍の大きさにする
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("approve" to BpmnBounds(180.0, 75.0, 200.0, 160.0)),
+            "resize",
+        )
+
+        val updated = reparse(file)
+        val host = updated.nodesById.getValue("approve").bounds!!
+        val event = updated.nodesById.getValue(id!!).bounds!!
+        assertTrue(
+            "縁に付いたまま (event=$event, host=$host)",
+            event.centerX >= host.x && event.centerX <= host.right &&
+                event.centerY >= host.y && event.centerY <= host.bottom + 1,
+        )
     }
 }

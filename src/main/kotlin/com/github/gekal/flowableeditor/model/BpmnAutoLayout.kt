@@ -28,6 +28,9 @@ object BpmnAutoLayout {
     /** 循環参照でスタックを掘り進まないための保険。 */
     private const val MAX_DEPTH = 200
 
+    /** 区画の内側に取る余白。名前を書く帯のぶんも含む。 */
+    private const val LANE_INSET = 50.0
+
     /** 種類ごとの既定サイズ (幅, 高さ)。BPMN の慣習的な寸法に合わせている。 */
     fun defaultSize(kind: BpmnElementKind): Pair<Double, Double> = when {
         kind.category == BpmnCategory.EVENT -> 36.0 to 36.0
@@ -49,15 +52,98 @@ object BpmnAutoLayout {
      */
     fun relayout(diagram: BpmnDiagram) {
         if (!canRelayout(diagram)) return
-        diagram.nodes.forEach { it.bounds = null }
+
+        // 区画は動かさず、その位置と大きさを覚えておく
+        val containers = diagram.nodes
+            .filter { it.kind.isPoolOrLane }
+            .mapNotNull { node -> node.bounds?.let { node.id to it } }
+            .toMap()
+        val laneOf = laneAssignments(diagram)
+
+        diagram.nodes.forEach { if (!it.kind.isPoolOrLane) it.bounds = null }
         diagram.edges.forEach { it.waypoints = emptyList() }
         layout(diagram)
+
+        if (containers.isNotEmpty()) fitIntoLanes(diagram, containers, laneOf)
         BpmnEdgeRouter.routeMissingEdges(diagram)
     }
 
-    /** 配置し直せる図か。プールやレーンがあると区画を壊すので触らない。 */
+    /** 配置し直せる図か。並べる相手が居ることだけ確かめる。 */
     fun canRelayout(diagram: BpmnDiagram): Boolean =
-        diagram.nodes.none { it.kind.isPoolOrLane } && diagram.nodes.any { it.id.isNotEmpty() }
+        diagram.nodes.any { !it.kind.isPoolOrLane && it.id.isNotEmpty() }
+
+    /**
+     * 要素がどのレーンに属しているか。
+     *
+     * 並べ直す前の位置で判断する。並べ直したあとでは、どのレーンに居たのかが
+     * 分からなくなってしまうため。
+     */
+    private fun laneAssignments(diagram: BpmnDiagram): Map<String, String> {
+        val lanes = diagram.nodes.filter { it.kind == BpmnElementKind.LANE && it.id.isNotEmpty() }
+        if (lanes.isEmpty()) return emptyMap()
+
+        val result = HashMap<String, String>()
+        for (node in diagram.nodes) {
+            if (node.kind.isPoolOrLane || node.id.isEmpty()) continue
+            val bounds = node.bounds ?: continue
+            lanes.firstOrNull { it.bounds?.contains(bounds.centerX, bounds.centerY) == true }
+                ?.let { result[node.id] = it.id }
+        }
+        return result
+    }
+
+    /**
+     * 並べ直した結果を区画の中に収める。
+     *
+     * 横の並び (流れの順) は保ったまま、縦だけを元居たレーンの帯へ移す。
+     * 帯からはみ出すときは区画のほうを広げる。要素を区画の外に出すよりは、
+     * 区画が伸びるほうが定義として素直なため。
+     */
+    private fun fitIntoLanes(
+        diagram: BpmnDiagram,
+        containers: Map<String, BpmnBounds>,
+        laneOf: Map<String, String>,
+    ) {
+        val laid = diagram.nodes.filter { !it.kind.isPoolOrLane && it.bounds != null }
+        if (laid.isEmpty()) return
+
+        // 区画の内側の左端に合わせて、全体を横へずらす
+        val innerLeft = containers.values.minOf { it.x } + LANE_INSET
+        val shiftX = innerLeft - laid.minOf { it.bounds!!.x }
+
+        for (node in laid) {
+            val bounds = node.bounds ?: continue
+            val lane = laneOf[node.id]?.let { containers[it] }
+            val shiftedX = bounds.x + shiftX
+            node.bounds = if (lane == null) {
+                bounds.translate(shiftX, 0.0)
+            } else {
+                // レーンの中央に据える
+                BpmnBounds(shiftedX, lane.centerY - bounds.height / 2, bounds.width, bounds.height)
+            }
+        }
+
+        growContainers(diagram, containers)
+    }
+
+    /** 中身がはみ出した区画を広げる。 */
+    private fun growContainers(diagram: BpmnDiagram, containers: Map<String, BpmnBounds>) {
+        val laidRight = diagram.nodes
+            .filter { !it.kind.isPoolOrLane }
+            .mapNotNull { it.bounds?.right }
+            .maxOrNull() ?: return
+
+        for (node in diagram.nodes) {
+            if (!node.kind.isPoolOrLane) continue
+            val original = containers[node.id] ?: continue
+            val needed = laidRight + LANE_INSET - original.x
+            node.bounds = if (needed > original.width) {
+                BpmnBounds(original.x, original.y, needed, original.height)
+            } else {
+                original
+            }
+        }
+    }
 
     fun layout(diagram: BpmnDiagram) {
         val context = LayoutContext(diagram)

@@ -14,10 +14,14 @@
   <br/>パレットは 16 種類をイベント・アクティビティ・ゲートウェイに分けて並べ、要素ごとに専用のアイコンを持つ。選択の道具があり Esc でも解除できる。境界イベントは落とした先のアクティビティに貼り付く。構造ビューも同じアイコンを使う。
 - Connection shape can be edited: drag a bend point to move it, drag the middle of a segment to add one, double-click to remove it. The ends stay docked to the shapes.
   <br/>線の形を編集できる。折れ点をドラッグして動かし、線分の中ほどを掴むと折れ点が増え、ダブルクリックで消える。両端は図形の縁に吸い付いたまま。
-- Automatic arrangement from the toolbar: lays the diagram out left to right and redraws the connections, as one undoable step. Diagrams with pools or lanes are left untouched.
-  <br/>ツールバーからの自動整列。左から右へ並べ直して線も引き直す。取り消しは一度で効く。プールやレーンがある図は触らない。
-- Moving a pool, lane or sub process carries everything inside it, and moving an activity carries its boundary events.
-  <br/>プール・レーン・サブプロセスを動かすと中身が付いてくる。アクティビティを動かすと境界イベントも付いてくる。
+- Automatic arrangement from the toolbar: lays the diagram out left to right and redraws the connections, as one undoable step. Lanes are respected - elements stay in the lane they were in, and containers grow rather than letting contents spill out.
+  <br/>ツールバーからの自動整列。左から右へ並べ直して線も引き直す。取り消しは一度で効く。レーンは尊重され、要素は元居た帯に留まり、はみ出す場合は区画のほうが広がる。
+- Lane membership (`flowNodeRef`) follows the diagram: moving an element into another lane rewrites it.
+  <br/>レーン所属 (`flowNodeRef`) が図に追従する。別のレーンへ動かすと書き換わる。
+- Moving a pool, lane or sub process carries everything inside it. Boundary events stay docked to their host when it is moved or resized. Deleting a pool removes the process it points at.
+  <br/>プール・レーン・サブプロセスを動かすと中身が付いてくる。境界イベントは貼り付け先を動かしても大きさを変えても縁に付いたまま。プールを消すと指していたプロセスも消える。
+- A pool created around an existing process is sized to enclose it.
+  <br/>既にあるプロセスを包むプールは、その要素を囲む大きさで作られる。
 - Pools and lanes can be created from the palette, and the connection type (sequence flow, message flow, association) is chosen from what is being connected.
   <br/>プールとレーンをパレットから作れる。線の種類は繋ぐ相手から自動で決まる（シーケンスフロー / メッセージフロー / 関連）。
 - Split editor for `*.bpmn`, `*.bpmn20.xml` and any XML file in the BPMN 2.0 namespace: XML on the left, a live diagram on the right, with clicks and caret moves synchronised both ways.

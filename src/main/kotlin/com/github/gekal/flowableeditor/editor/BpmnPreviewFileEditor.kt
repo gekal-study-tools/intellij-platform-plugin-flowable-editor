@@ -376,7 +376,7 @@ class BpmnPreviewFileEditor(
         if (!BpmnAutoLayout.canRelayout(current)) {
             Messages.showInfoMessage(
                 project,
-                FlowableBundle.message("layout.unsupported.pools"),
+                FlowableBundle.message("layout.unsupported.empty"),
                 FlowableBundle.message("layout.unsupported.title"),
             )
             return

@@ -6,7 +6,7 @@
 #   scripts/publish.sh --channel eap   事前公開チャンネルに出す
 #
 # Marketplace は同じ版を上書きできない。EAP のように何度も出すチャンネルでは
-# 素の版にビルド番号を足した版 (0.2.0-eap.1, 0.2.0-eap.2 ...) を自動で採番する。
+# 素の版にビルド番号を足した版 (0.1.0-eap.1, 0.1.0-eap.2 ...) を自動で採番する。
 # 番号は公開済みの一覧から次の空き番号を選ぶので、続けて実行しても衝突しない。
 #   scripts/publish.sh --dry-run       公開せず、事前確認だけ行う
 #   scripts/publish.sh --status        公開中のバージョンを見る
@@ -59,8 +59,8 @@ for u in updates:
 }
 
 # チャンネル向けに、まだ使われていないビルド番号付きの版を組み立てる。
-# 例: 素の版 0.2.0 / チャンネル eap で、0.2.0-eap.1 と 0.2.0-eap.2 が公開済みなら
-#     0.2.0-eap.3 を返す。
+# 例: 素の版 0.1.0 / チャンネル eap で、0.1.0-eap.1 と 0.1.0-eap.2 が公開済みなら
+#     0.1.0-eap.3 を返す。
 next_channel_version() {
   local base="$1" channel="$2" versions="$3" max=0 number
   while IFS= read -r candidate; do

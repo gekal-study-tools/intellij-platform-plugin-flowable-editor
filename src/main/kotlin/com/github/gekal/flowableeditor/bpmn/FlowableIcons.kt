@@ -30,6 +30,17 @@ object FlowableIcons {
     @JvmField
     val Flow: Icon = load("bpmnFlow")
 
+    @JvmField
+    val PaletteSelect: Icon = load("paletteSelect")
+
+    /**
+     * パレットの要素に対応する図。
+     *
+     * 図の描画をそのまま縮めると、タスクの種別マーカーが潰れて見分けが付かない。
+     * 小さい寸法に合わせて描き起こした専用のアイコンを使う。
+     */
+    fun forPaletteItem(iconName: String): Icon = load("palette$iconName")
+
     /** 構造ビューで要素の種類に応じたアイコンを選ぶ。 */
     fun forKind(kind: BpmnElementKind): Icon = when {
         kind.isSubProcess -> SubProcess

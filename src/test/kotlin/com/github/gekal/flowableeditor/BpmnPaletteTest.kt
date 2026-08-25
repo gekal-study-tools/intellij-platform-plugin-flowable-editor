@@ -8,6 +8,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
+import javax.swing.JToggleButton
 
 /**
  * パレットの見た目と、道具の構え方・外し方。
@@ -30,44 +31,37 @@ class BpmnPaletteTest : BasePlatformTestCase() {
     }
 
     fun `test the icons actually look different from each other`() {
-        // 名前を分けただけで同じ絵を指していては意味がない。実際に描いて見比べる。
-        val rendered = BpmnPaletteItem.entries.associate { item ->
-            item to render(FlowableIcons.forPaletteItem(item.iconName))
-        }
+        // 名前を分けただけで同じ絵を指していては意味がない。
+        // ラスタライズは実行環境によって効かないことがあるので、絵の元 (SVG) を突き合わせる。
+        val drawings = BpmnPaletteItem.entries.associateWith { readIcon(it.iconName) }
 
         val duplicates = mutableListOf<String>()
-        val entries = rendered.entries.toList()
+        val entries = drawings.entries.toList()
         for (i in entries.indices) {
             for (j in i + 1 until entries.size) {
-                if (entries[i].value.contentEquals(entries[j].value)) {
+                if (entries[i].value == entries[j].value) {
                     duplicates += "${entries[i].key.label} と ${entries[j].key.label}"
                 }
             }
         }
-        assertTrue("同じ見た目のアイコンがある: $duplicates", duplicates.isEmpty())
+        assertTrue("同じ絵のアイコンがある: $duplicates", duplicates.isEmpty())
+    }
 
-        // 何も描かれていない (真っ白な) アイコンが混ざっていないこと
-        for ((item, pixels) in rendered) {
-            assertTrue("${item.label} のアイコンが空", pixels.any { it != pixels[0] })
+    fun `test every icon actually draws something`() {
+        for (item in BpmnPaletteItem.entries) {
+            val drawing = readIcon(item.iconName)
+            assertTrue(
+                "${item.label} のアイコンに図形が無い",
+                listOf("<circle", "<rect", "<path").any { drawing.contains(it) },
+            )
         }
     }
 
-    /** アイコンを描いて画素の並びにする。 */
-    private fun render(icon: javax.swing.Icon): IntArray {
-        val image = BufferedImage(
-            icon.iconWidth.coerceAtLeast(1),
-            icon.iconHeight.coerceAtLeast(1),
-            BufferedImage.TYPE_INT_ARGB,
-        )
-        val g = image.createGraphics()
-        try {
-            icon.paintIcon(null, g, 0, 0)
-        } finally {
-            g.dispose()
-        }
-        return IntArray(image.width * image.height) { index ->
-            image.getRGB(index % image.width, index / image.width)
-        }
+    /** アイコンの元になっている SVG を読む。 */
+    private fun readIcon(iconName: String): String {
+        val path = "/icons/palette$iconName.svg"
+        val stream = requireNotNull(javaClass.getResourceAsStream(path)) { "$path が見つからない" }
+        return stream.bufferedReader().use { it.readText() }
     }
 
     fun `test items are grouped in bpmn order`() {
@@ -88,13 +82,30 @@ class BpmnPaletteTest : BasePlatformTestCase() {
         assertEquals("解除すると道具が外れる", listOf(null), armed)
     }
 
-    fun `test the palette renders its icons`() {
+    fun `test the palette lays its buttons out`() {
+        // 最初にこれを書いたとき、レイアウトを走らせずに描いていたため子が
+        // 大きさ 0 のままで、枠しか描かれていないのに検査が通ってしまった。
         val palette = BpmnPalette { }
         palette.size = palette.preferredSize
-        // レイアウトしないと子が大きさ 0 のままで、枠しか描かれない
         palette.doLayout()
-        palette.components.forEach { it.doLayout() }
+
+        val buttons = palette.components.filterIsInstance<JToggleButton>()
+        assertEquals(
+            "選択の道具 + 要素の数だけボタンがある",
+            BpmnPaletteItem.entries.size + 1,
+            buttons.size,
+        )
+        for (button in buttons) {
+            assertTrue("ボタンに大きさがある: ${button.toolTipText}", button.width > 0 && button.height > 0)
+        }
         assertTrue("縦に並ぶ幅がある", palette.width in 1..80)
+    }
+
+    fun `test the palette can be painted`() {
+        // 描画そのもので落ちないこと。画素は実行環境で変わるので数えない。
+        val palette = BpmnPalette { }
+        palette.size = palette.preferredSize
+        palette.doLayout()
 
         val image = BufferedImage(palette.width, palette.height, BufferedImage.TYPE_INT_RGB)
         val g = image.createGraphics()
@@ -106,16 +117,6 @@ class BpmnPaletteTest : BasePlatformTestCase() {
         val output = File("build/reports/bpmn-render/palette.png")
         output.parentFile.mkdirs()
         ImageIO.write(image, "PNG", output)
-
-        // 右端の枠線を数えて通ってしまわないよう、内側だけを見る
-        val background = image.getRGB(1, 1)
-        var drawn = 0
-        for (y in 0 until image.height) {
-            for (x in 0 until image.width - 3) {
-                if (image.getRGB(x, y) != background) drawn++
-            }
-        }
-        assertTrue("アイコンが描かれている (見つかった画素: $drawn)", drawn > 400)
     }
 
     // --- 構造ビューとの一貫性 ------------------------------------------------

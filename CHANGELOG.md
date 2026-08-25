@@ -8,6 +8,8 @@
 
 ### Added
 
+- The diagram is editable: move and resize shapes, draw sequence flows, add elements from a palette, delete, and rename. Changes are written back to the XML, so the file stays the source of truth and IDE undo works. Definitions without `BPMNDI` get their diagram information written out on the first edit.
+  <br/>図を編集できる。移動・大きさ変更・接続線の作成・パレットからの追加・削除・改名に対応し、変更は XML に書き戻る。XML が唯一の正なので Undo もそのまま効く。`BPMNDI` を持たない定義は最初の編集で図形情報が書き出される。
 - Split editor for `*.bpmn`, `*.bpmn20.xml` and any XML file in the BPMN 2.0 namespace: XML on the left, a live diagram on the right, with clicks and caret moves synchronised both ways.
   <br/>`*.bpmn` / `*.bpmn20.xml`、および BPMN 2.0 名前空間を含む `*.xml` を分割エディタで開く。左が XML、右が図で、図形のクリックとキャレット移動が双方向に同期する。
 - Automatic layout for definitions without `BPMNDI` diagram information, so hand-written Flowable definitions render too.

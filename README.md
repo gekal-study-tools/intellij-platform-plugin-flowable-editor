@@ -24,7 +24,12 @@ On top of the preview it adds BPMN-aware editing support:
   elements without an id (with a quick fix that generates one).
 - A "Flowable BPMN Process" file template in the New menu.
 
-The preview is read-only: shapes are not draggable, and every edit happens in the XML.
+The diagram is editable. Drag shapes to move them, drag a corner to resize, drag from the
+connection handle to draw a sequence flow, pick elements from the palette to add them, and
+press Delete to remove one. Every change is written straight back to the XML, so the file
+stays the single source of truth and IDE undo works as usual. Definitions without `BPMNDI`
+get their diagram information written out on the first edit.
+
 Only BPMN is supported - DMN, CMMN and Flowable Form files are out of scope.
 
 <em>This is an unofficial, community-maintained plugin. It is not affiliated with,
@@ -37,6 +42,7 @@ and is used here only to describe what the plugin works with.</em>
 | 機能 | 説明 |
 | --- | --- |
 | 分割エディタ | 左に XML、右に図。図形クリック ⇄ キャレット移動が双方向に同期する |
+| 図の編集 | 移動・大きさ変更・接続・追加・削除・改名。変更は XML に書き戻り、Undo も効く |
 | 自動レイアウト | `bpmndi:BPMNDiagram` を持たない定義でも、シーケンスフローから左→右に階層配置して描画する |
 | 図の操作 | トラックパッドのピンチで拡大縮小、2 本指スクロールで移動。詳細は下記 |
 | スキーマ補完・検証 | BPMN 2.0 / Flowable 拡張の XSD を同梱。ネットワーク不要 |
@@ -54,7 +60,13 @@ macOS のトラックパッドで、他のアプリと同じ感覚で扱える�
 | 2 本指スクロール（上下・左右） | 図の移動 |
 | Cmd + スクロール（Windows / Linux は Ctrl） | 拡大・縮小。トラックパッドではなめらかに、マウスのホイールは 1 段ずつ |
 | 何もない場所をドラッグ | 図の移動 |
-| 図形をクリック | XML の該当箇所にキャレットを移す |
+| 図形をクリック | 選択し、XML の該当箇所にキャレットを移す |
+| 図形をドラッグ | 移動する |
+| 角のつまみをドラッグ | 大きさを変える |
+| 右の丸をドラッグ（または Shift + ドラッグ） | 別の図形へ線を引く |
+| パレットで選んでキャンバスを押す | その位置に要素を置く |
+| Delete / Backspace | 選択中の要素を消す |
+| ダブルクリック | 名前を編集する |
 
 図は開いたときにウィンドウの**中央**に置かれる。図のまわりにはウィンドウ 1 枚分の
 余白があるので、**上下左右どちらにも行き止まりなく動かせる**（図を画面の外へ
@@ -66,6 +78,20 @@ macOS のトラックパッドで、他のアプリと同じ感覚で扱える�
 
 ツールバーには拡大・縮小・ウィンドウに合わせる・等倍・PNG 書き出し・再読み込みを置いてある。
 拡大・縮小はいま見ている中心を保ったまま働く。
+
+## 図の編集について
+
+変更はすべて PSI 経由で XML に書き戻される。図が状態を抱え込むことはないので、
+**XML が常に唯一の正**であり、IDE の Undo / Redo がそのまま効く。
+
+消すときはぶら下がるものも一緒に片付ける。要素を消すと、それに触れる
+シーケンスフロー・張り付いた境界イベント・対応する図形情報 (BPMNDI) も消える。
+半端に残って壊れた定義にならないようにするため。
+
+`BPMNDI` を持たない定義は、**最初の編集時に自動レイアウトの座標がそのまま
+図形情報として書き出される**。以降の移動は単なる座標の更新になる。
+
+読み取り専用のファイルでは編集操作は働かない。
 
 ## 対応ファイル
 
@@ -252,7 +278,8 @@ gradle.properties の version = 0.2.0
 
 ## 制限
 
-- プレビューは読み取り専用。図形のドラッグによる編集は行わない（編集は XML 側で行う）
+- 図の編集は移動・大きさ変更・接続・追加・削除・改名まで。レーンやプールの編集、
+  接続線の折れ点の調整はまだ入っていない
 - 対応するのは BPMN のみ。DMN / CMMN / Flowable Form は対象外
 - 参照は同一ファイル内で解決する。`calledElement` のような他ファイルのプロセスキーは追わない
 

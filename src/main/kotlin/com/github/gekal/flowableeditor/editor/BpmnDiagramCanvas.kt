@@ -1,27 +1,39 @@
 package com.github.gekal.flowableeditor.editor
 
 import com.github.gekal.flowableeditor.FlowableBundle
+import com.github.gekal.flowableeditor.edit.BpmnPaletteItem
+import com.github.gekal.flowableeditor.model.BpmnAutoLayout
+import com.github.gekal.flowableeditor.model.BpmnBounds
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnEdge
 import com.github.gekal.flowableeditor.model.BpmnNode
+import com.github.gekal.flowableeditor.model.BpmnPoint
 import com.intellij.ui.ClientProperty
 import com.intellij.ui.components.Magnificator
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.TestOnly
+import java.awt.BasicStroke
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Point
 import java.awt.Rectangle
+import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
+import java.awt.geom.Ellipse2D
+import java.awt.geom.Line2D
 import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
+import javax.swing.AbstractAction
 import javax.swing.JComponent
+import javax.swing.JOptionPane
 import javax.swing.JScrollPane
 import javax.swing.JViewport
+import javax.swing.KeyStroke
 import javax.swing.Scrollable
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
@@ -91,6 +103,36 @@ class BpmnDiagramCanvas :
     private var panOrigin: Point? = null
     private var panViewPosition: Point? = null
 
+    /** 設定されていれば編集できる。null なら読み取り専用。 */
+    var editListener: BpmnCanvasEditListener? = null
+
+    /** パレットで選んでいる要素。次にキャンバスを押した位置に置かれる。 */
+    var armedPaletteItem: BpmnPaletteItem? = null
+        set(value) {
+            field = value
+            cursor =
+                if (value == null) Cursor.getDefaultCursor() else Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR)
+        }
+
+    /** いま行っている操作。 */
+    private var gesture: Gesture = Gesture.None
+
+    private sealed interface Gesture {
+        data object None : Gesture
+
+        /** 図形の移動。[origin] は押した位置 (モデル座標)。 */
+        data class Move(val node: BpmnNode, val origin: BpmnPoint, val start: BpmnBounds) : Gesture
+
+        /** 角のつまみによる大きさ変更。 */
+        data class Resize(val node: BpmnNode, val handle: BpmnHandle, val start: BpmnBounds) : Gesture
+
+        /** 線を引いている最中。[to] は現在のカーソル位置 (モデル座標)。 */
+        data class Connect(val source: BpmnNode, val to: BpmnPoint, val target: BpmnNode?) : Gesture
+    }
+
+    /** 移動・大きさ変更中に見せる仮の矩形。確定するまで XML には書かない。 */
+    private var previewBounds: BpmnBounds? = null
+
     /**
      * 「ウィンドウに合わせて中央へ」をレイアウト確定後にやり直す必要があるか。
      * エディタを開いた直後はビューポートのサイズがまだ 0 で、
@@ -104,12 +146,16 @@ class BpmnDiagramCanvas :
         val mouse = object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
                 requestFocusInWindow()
+                if (!SwingUtilities.isLeftMouseButton(e)) return
+                if (placeArmedItem(e.point)) return
+                if (beginEditGesture(e)) return
+
                 val element = elementAt(e.point)
-                if (element == null && SwingUtilities.isLeftMouseButton(e)) {
+                if (element == null) {
                     panOrigin = e.locationOnScreen
                     panViewPosition = viewport()?.viewPosition?.let { Point(it) }
-                }
-                if (element != null) {
+                    select(null, scroll = false)
+                } else {
                     selection = element
                     repaint()
                     onElementSelected?.invoke(element)
@@ -117,11 +163,13 @@ class BpmnDiagramCanvas :
             }
 
             override fun mouseReleased(e: MouseEvent) {
+                finishEditGesture()
                 panOrigin = null
                 panViewPosition = null
             }
 
             override fun mouseDragged(e: MouseEvent) {
+                if (updateEditGesture(e)) return
                 val origin = panOrigin ?: return
                 val start = panViewPosition ?: return
                 val viewport = viewport() ?: return
@@ -134,11 +182,17 @@ class BpmnDiagramCanvas :
                     (start.y - dy).coerceIn(0, maxY),
                 )
             }
+
+            override fun mouseClicked(e: MouseEvent) {
+                if (e.clickCount == 2) renameSelection()
+            }
         }
         addMouseListener(mouse)
         addMouseMotionListener(mouse)
         addMouseWheelListener { e -> handleWheel(e) }
         installMagnificator()
+        installDeleteKey()
+        isFocusable = true
         toolTipText = ""
     }
 
@@ -166,6 +220,166 @@ class BpmnDiagramCanvas :
     }
 
     fun selectedElement(): Any? = selection
+
+    // --- 編集操作 ------------------------------------------------------------
+
+    /** 編集できる状態か。 */
+    private fun canEdit(): Boolean = editListener != null
+
+    /** パレットで選んだ要素を置く。置いたら true。 */
+    private fun placeArmedItem(point: Point): Boolean {
+        val item = armedPaletteItem ?: return false
+        val listener = editListener ?: return false
+
+        val (x, y) = viewToModel(point)
+        val size = BpmnAutoLayout.defaultSize(item.kind)
+        // 押した位置が図形の中心に来るようにする
+        val bounds = BpmnBounds(x - size.first / 2, y - size.second / 2, size.first, size.second)
+        // 落とした先がサブプロセスなら、その中に入れる
+        val container = diagram.nodeAt(x, y)?.takeIf { it.kind.isSubProcess }?.id
+
+        armedPaletteItem = null
+        listener.onCreate(item, bounds, container)
+        return true
+    }
+
+    /** 押した位置から編集操作を始められるなら始める。 */
+    private fun beginEditGesture(e: MouseEvent): Boolean {
+        if (!canEdit()) return false
+        val (x, y) = viewToModel(e.point)
+
+        // 選択中の図形のつまみが最優先。図形本体より手前にある。
+        val selected = selection as? BpmnNode
+        val selectedBounds = selected?.bounds
+        if (selected != null && selectedBounds != null) {
+            handleAt(selectedBounds, e.point)?.let { handle ->
+                gesture = if (handle == BpmnHandle.CONNECT) {
+                    Gesture.Connect(selected, BpmnPoint(x, y), null)
+                } else {
+                    previewBounds = selectedBounds
+                    Gesture.Resize(selected, handle, selectedBounds)
+                }
+                return true
+            }
+        }
+
+        val node = diagram.nodeAt(x, y) ?: return false
+        val bounds = node.bounds ?: return false
+        if (node.id.isEmpty()) return false
+
+        // Shift + ドラッグでも線を引ける。つまみを探さずに済む近道。
+        if (e.isShiftDown) {
+            selection = node
+            gesture = Gesture.Connect(node, BpmnPoint(x, y), null)
+            repaint()
+            return true
+        }
+
+        selection = node
+        onElementSelected?.invoke(node)
+        previewBounds = bounds
+        gesture = Gesture.Move(node, BpmnPoint(x, y), bounds)
+        repaint()
+        return true
+    }
+
+    /** ドラッグ中の見た目を更新する。操作中なら true。 */
+    private fun updateEditGesture(e: MouseEvent): Boolean {
+        val (x, y) = viewToModel(e.point)
+        when (val current = gesture) {
+            is Gesture.Move -> {
+                previewBounds = current.start.translate(x - current.origin.x, y - current.origin.y)
+                repaint()
+                return true
+            }
+
+            is Gesture.Resize -> {
+                previewBounds = BpmnHandles.resize(current.start, current.handle, x, y)
+                repaint()
+                return true
+            }
+
+            is Gesture.Connect -> {
+                val target = diagram.nodeAt(x, y)?.takeIf { it.id.isNotEmpty() && it.id != current.source.id }
+                gesture = current.copy(to = BpmnPoint(x, y), target = target)
+                repaint()
+                return true
+            }
+
+            Gesture.None -> return false
+        }
+    }
+
+    /** 指を離したところで確定し、XML へ書き戻す。 */
+    private fun finishEditGesture() {
+        val listener = editListener
+        when (val current = gesture) {
+            is Gesture.Move -> {
+                val bounds = previewBounds
+                if (listener != null && bounds != null && bounds != current.start) {
+                    listener.onBoundsChanged(current.node.id, bounds, isResize = false)
+                }
+            }
+
+            is Gesture.Resize -> {
+                val bounds = previewBounds
+                if (listener != null && bounds != null && bounds != current.start) {
+                    listener.onBoundsChanged(current.node.id, bounds, isResize = true)
+                }
+            }
+
+            is Gesture.Connect -> {
+                val target = current.target
+                if (listener != null && target != null) {
+                    listener.onConnect(current.source.id, target.id)
+                }
+            }
+
+            Gesture.None -> Unit
+        }
+        gesture = Gesture.None
+        previewBounds = null
+        repaint()
+    }
+
+    /** [point] にあるつまみ。無ければ null。 */
+    private fun handleAt(bounds: BpmnBounds, point: Point): BpmnHandle? =
+        BpmnHandle.entries.firstOrNull { handle ->
+            val (hx, hy) = BpmnHandles.center(bounds, handle)
+            val view = modelToView(hx, hy)
+            val radius = BpmnHandles.RADIUS + 2
+            kotlin.math.abs(view.x - point.x) <= radius && kotlin.math.abs(view.y - point.y) <= radius
+        }
+
+    /** Delete / Backspace で選択中の要素を消す。 */
+    private fun installDeleteKey() {
+        val action = object : AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                val listener = editListener ?: return
+                val node = selection as? BpmnNode ?: return
+                if (node.id.isEmpty()) return
+                listener.onDelete(listOf(node.id))
+                selection = null
+            }
+        }
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "bpmn.delete")
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "bpmn.delete")
+        actionMap.put("bpmn.delete", action)
+    }
+
+    /** ダブルクリックで名前を編集する。 */
+    private fun renameSelection() {
+        val listener = editListener ?: return
+        val node = selection as? BpmnNode ?: return
+        if (node.id.isEmpty()) return
+
+        val entered = JOptionPane.showInputDialog(
+            this,
+            FlowableBundle.message("edit.rename.prompt"),
+            node.name.orEmpty(),
+        ) ?: return
+        if (entered != node.name.orEmpty()) listener.onRename(node.id, entered)
+    }
 
     // --- ズーム --------------------------------------------------------------
 
@@ -394,8 +608,86 @@ class BpmnDiagramCanvas :
             g2.scale(zoom, zoom)
             g2.translate(-originX(), -originY())
             painter().paint(g2, diagram, selection)
+            paintEditOverlay(g2)
         } finally {
             g2.dispose()
+        }
+    }
+
+    /**
+     * 編集中の見た目を、図の上に重ねて描く。
+     *
+     * ドラッグ中の矩形や引きかけの線はまだ XML に書いていない。
+     * 指を離すまでは、ここで見せているだけ。
+     */
+    private fun paintEditOverlay(g: Graphics2D) {
+        if (!canEdit()) return
+        val stroke = BasicStroke(
+            (1.5 / zoom).toFloat(),
+            BasicStroke.CAP_ROUND,
+            BasicStroke.JOIN_ROUND,
+            10f,
+            floatArrayOf((4 / zoom).toFloat(), (3 / zoom).toFloat()),
+            0f,
+        )
+
+        // 移動 / 大きさ変更の下書き
+        previewBounds?.let { bounds ->
+            g.color = BpmnColors.SELECTION
+            g.stroke = stroke
+            g.draw(bounds.toRectangle2D())
+        }
+
+        when (val current = gesture) {
+            is Gesture.Connect -> paintConnectionPreview(g, current, stroke)
+            else -> Unit
+        }
+
+        // つまみは選択中の図形にだけ出す
+        val bounds = previewBounds ?: (selection as? BpmnNode)?.bounds ?: return
+        if (gesture is Gesture.Connect) return
+        paintHandles(g, bounds)
+    }
+
+    private fun paintConnectionPreview(g: Graphics2D, gesture: Gesture.Connect, stroke: BasicStroke) {
+        val from = gesture.source.bounds ?: return
+        g.color = BpmnColors.SELECTION
+        g.stroke = stroke
+        g.draw(Line2D.Double(from.centerX, from.centerY, gesture.to.x, gesture.to.y))
+
+        // 繋がる先を縁取って、どこに落ちるかを示す
+        gesture.target?.bounds?.let { target ->
+            val margin = 4.0
+            g.draw(
+                Rectangle2D.Double(
+                    target.x - margin,
+                    target.y - margin,
+                    target.width + margin * 2,
+                    target.height + margin * 2,
+                ),
+            )
+        }
+    }
+
+    private fun paintHandles(g: Graphics2D, bounds: BpmnBounds) {
+        val radius = BpmnHandles.RADIUS / zoom
+        g.stroke = BasicStroke((1.0 / zoom).toFloat())
+        for (handle in BpmnHandle.entries) {
+            val (x, y) = BpmnHandles.center(bounds, handle)
+            val shape = Rectangle2D.Double(x - radius, y - radius, radius * 2, radius * 2)
+            if (handle == BpmnHandle.CONNECT) {
+                // 線を引くつまみは丸にして、大きさ変更のつまみと見分ける
+                val circle = Ellipse2D.Double(x - radius, y - radius, radius * 2, radius * 2)
+                g.color = BpmnColors.SELECTION
+                g.fill(circle)
+                g.color = BpmnColors.CANVAS
+                g.draw(circle)
+            } else {
+                g.color = BpmnColors.CANVAS
+                g.fill(shape)
+                g.color = BpmnColors.SELECTION
+                g.draw(shape)
+            }
         }
     }
 

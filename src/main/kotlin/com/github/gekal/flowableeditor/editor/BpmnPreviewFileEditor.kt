@@ -1,6 +1,9 @@
 package com.github.gekal.flowableeditor.editor
 
 import com.github.gekal.flowableeditor.FlowableBundle
+import com.github.gekal.flowableeditor.edit.BpmnDocumentEditor
+import com.github.gekal.flowableeditor.edit.BpmnPaletteItem
+import com.github.gekal.flowableeditor.model.BpmnBounds
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnEdge
 import com.github.gekal.flowableeditor.model.BpmnModelParser
@@ -76,6 +79,9 @@ class BpmnPreviewFileEditor(
     }
 
     private val canvas = BpmnDiagramCanvas()
+    private val palette = BpmnPalette { item ->
+        canvas.armedPaletteItem = item
+    }
     private val statusLabel = JBLabel().apply { border = JBUI.Borders.empty(2, 8) }
     private val alarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
     private val rootPanel = JPanel(BorderLayout())
@@ -94,7 +100,11 @@ class BpmnPreviewFileEditor(
 
         rootPanel.add(createToolbar(), BorderLayout.NORTH)
         rootPanel.add(scrollPane, BorderLayout.CENTER)
+        rootPanel.add(palette, BorderLayout.WEST)
         rootPanel.add(statusLabel, BorderLayout.SOUTH)
+
+        // 書き込めるファイルのときだけ図から編集できるようにする
+        canvas.editListener = EditHandler()
 
         canvas.onElementSelected = ::onDiagramSelection
         canvas.onZoomChanged = ::updateStatus
@@ -181,6 +191,75 @@ class BpmnPreviewFileEditor(
                 layout,
                 zoomPercent,
             )
+        }
+    }
+
+    // --- 図からの編集 --------------------------------------------------------
+
+    /**
+     * キャンバス上の操作を XML の書き換えに繋ぐ。
+     *
+     * 書き換えたあとは何もしない。ドキュメントの変更を受けて図が組み直されるので、
+     * 画面の更新は既定の流れに任せる。
+     */
+    private inner class EditHandler : BpmnCanvasEditListener {
+
+        override fun onBoundsChanged(elementId: String, bounds: BpmnBounds, isResize: Boolean) {
+            edit { file, diagram ->
+                BpmnDocumentEditor.setBounds(
+                    project,
+                    file,
+                    diagram,
+                    mapOf(elementId to bounds),
+                    FlowableBundle.message(if (isResize) "edit.command.resize" else "edit.command.move"),
+                )
+            }
+        }
+
+        override fun onConnect(sourceId: String, targetId: String) {
+            edit { file, diagram ->
+                BpmnDocumentEditor.connect(
+                    project, file, diagram, sourceId, targetId,
+                    FlowableBundle.message("edit.command.connect"),
+                )
+            }
+        }
+
+        override fun onCreate(item: BpmnPaletteItem, bounds: BpmnBounds, containerId: String?) {
+            palette.clearSelection()
+            edit { file, diagram ->
+                BpmnDocumentEditor.createElement(
+                    project, file, diagram, item, bounds, containerId,
+                    FlowableBundle.message("edit.command.create"),
+                )
+            }
+        }
+
+        override fun onDelete(elementIds: List<String>) {
+            edit { file, _ ->
+                BpmnDocumentEditor.delete(
+                    project, file, elementIds,
+                    FlowableBundle.message("edit.command.delete"),
+                )
+            }
+        }
+
+        override fun onRename(elementId: String, name: String) {
+            edit { file, _ ->
+                BpmnDocumentEditor.setName(
+                    project, file, elementId, name,
+                    FlowableBundle.message("edit.command.rename"),
+                )
+            }
+        }
+
+        /** 書き換えの共通部分。読み取り専用のファイルには手を出さない。 */
+        private fun edit(action: (XmlFile, BpmnDiagram) -> Unit) {
+            if (project.isDisposed || !file.isValid || !file.isWritable) return
+            val psiFile = PsiManager.getInstance(project).findFile(file) as? XmlFile ?: return
+            action(psiFile, canvas.getDiagram())
+            // 書き換えの結果をすぐ図に反映する (通常の遅延を待たない)
+            updateDiagram()
         }
     }
 

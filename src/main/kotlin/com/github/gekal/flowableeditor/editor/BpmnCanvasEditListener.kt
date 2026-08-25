@@ -2,6 +2,7 @@ package com.github.gekal.flowableeditor.editor
 
 import com.github.gekal.flowableeditor.edit.BpmnPaletteItem
 import com.github.gekal.flowableeditor.model.BpmnBounds
+import com.github.gekal.flowableeditor.model.BpmnPoint
 
 /**
  * キャンバス上の操作を受け取る側。
@@ -18,6 +19,9 @@ interface BpmnCanvasEditListener {
 
     /** 図形から図形へ線を引いた。 */
     fun onConnect(sourceId: String, targetId: String)
+
+    /** 線の折れ点を動かした / 足した / 減らした。 */
+    fun onWaypointsChanged(edgeId: String, waypoints: List<BpmnPoint>)
 
     /**
      * パレットの要素を置いた。

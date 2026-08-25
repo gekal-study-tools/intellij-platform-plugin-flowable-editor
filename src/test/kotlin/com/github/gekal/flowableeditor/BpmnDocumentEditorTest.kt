@@ -4,6 +4,7 @@ import com.github.gekal.flowableeditor.edit.BpmnDocumentEditor
 import com.github.gekal.flowableeditor.edit.BpmnPaletteItem
 import com.github.gekal.flowableeditor.model.BpmnBounds
 import com.github.gekal.flowableeditor.model.BpmnDiagram
+import com.github.gekal.flowableeditor.model.BpmnElementKind
 import com.github.gekal.flowableeditor.model.BpmnModelParser
 import com.intellij.psi.xml.XmlFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -306,7 +307,11 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
     fun `test hand placed bends are kept when a shape moves`() {
         val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
         // flow1 に折れ点を足した状態を作る
-        BpmnDocumentEditor.setBounds(project, file, diagram, mapOf("start" to BpmnBounds(100.0, 100.0, 30.0, 30.0)), "seed")
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("start" to BpmnBounds(100.0, 100.0, 30.0, 30.0)),
+            "seed",
+        )
 
         val seeded = reparse(file)
         val threePoints = listOf(
@@ -375,5 +380,93 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
         val updated = reparse(file)
         assertNull(updated.nodesById["approve"])
         assertNull("貼り付いていた境界イベントも消える", updated.nodesById[id!!])
+    }
+
+    // --- 折れ点の書き戻し ----------------------------------------------------
+
+    fun `test bend points are written back and the ends stay docked`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+
+        BpmnDocumentEditor.setWaypoints(
+            project, file, diagram, "flow1",
+            listOf(
+                com.github.gekal.flowableeditor.model.BpmnPoint(130.0, 115.0),
+                com.github.gekal.flowableeditor.model.BpmnPoint(155.0, 260.0),
+                com.github.gekal.flowableeditor.model.BpmnPoint(180.0, 115.0),
+            ),
+            "bend",
+        )
+
+        val points = reparse(file).edges.first { it.id == "flow1" }.waypoints
+        assertEquals("途中の折れ点が残る", 3, points.size)
+        assertEquals(155.0, points[1].x, 1.0)
+        assertEquals(260.0, points[1].y, 1.0)
+
+        // 両端は図形の縁に付け直される
+        val start = reparse(file).nodesById.getValue("start").bounds!!
+        assertTrue(
+            "始点が図形の縁にある",
+            points.first().x >= start.x - 1 && points.first().x <= start.right + 1,
+        )
+    }
+
+    fun `test a line needs at least two points`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+        val before = reparse(file).edges.first { it.id == "flow1" }.waypoints
+
+        BpmnDocumentEditor.setWaypoints(
+            project, file, diagram, "flow1",
+            listOf(com.github.gekal.flowableeditor.model.BpmnPoint(1.0, 1.0)),
+            "bend",
+        )
+
+        assertEquals(before, reparse(file).edges.first { it.id == "flow1" }.waypoints)
+    }
+
+    // --- プールとレーン ------------------------------------------------------
+
+    fun `test pools and lanes are part of the diagram`() {
+        val (_, diagram) = open("collaborationWithLanes.bpmn20.xml")
+
+        assertEquals(BpmnElementKind.POOL, diagram.nodesById.getValue("pool1").kind)
+        assertEquals(BpmnElementKind.LANE, diagram.nodesById.getValue("lane1").kind)
+        assertNotNull("図形情報がある", diagram.nodesById.getValue("pool1").bounds)
+    }
+
+    fun `test a lane can be moved and resized like any other shape`() {
+        val (file, diagram) = open("collaborationWithLanes.bpmn20.xml")
+
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("lane2" to BpmnBounds(130.0, 240.0, 570.0, 160.0)),
+            "resize",
+        )
+
+        val lane = reparse(file).nodesById.getValue("lane2").bounds!!
+        assertEquals(240.0, lane.y)
+        assertEquals(160.0, lane.height)
+    }
+
+    fun `test renaming a lane writes its name`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+
+        BpmnDocumentEditor.setName(project, file, "lane2", "Director", "rename")
+
+        assertEquals("Director", reparse(file).nodesById.getValue("lane2").name)
+    }
+
+    fun `test moving a pool leaves the elements inside it alone`() {
+        val (file, diagram) = open("collaborationWithLanes.bpmn20.xml")
+        val before = reparse(file).nodesById.getValue("start").bounds!!
+
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("pool1" to BpmnBounds(100.0, 400.0, 600.0, 250.0)),
+            "move",
+        )
+
+        // プールを動かしても中の要素は動かない。まとめて動かす仕組みはまだ無い。
+        assertEquals(before, reparse(file).nodesById.getValue("start").bounds)
+        assertEquals(400.0, reparse(file).nodesById.getValue("pool1").bounds!!.y)
     }
 }

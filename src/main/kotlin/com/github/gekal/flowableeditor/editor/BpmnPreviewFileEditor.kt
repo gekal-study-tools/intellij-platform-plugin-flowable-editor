@@ -8,6 +8,7 @@ import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnEdge
 import com.github.gekal.flowableeditor.model.BpmnModelParser
 import com.github.gekal.flowableeditor.model.BpmnNode
+import com.github.gekal.flowableeditor.model.BpmnPoint
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -219,6 +220,15 @@ class BpmnPreviewFileEditor(
                     diagram,
                     mapOf(elementId to bounds),
                     FlowableBundle.message(if (isResize) "edit.command.resize" else "edit.command.move"),
+                )
+            }
+        }
+
+        override fun onWaypointsChanged(edgeId: String, waypoints: List<BpmnPoint>) {
+            edit { file, diagram ->
+                BpmnDocumentEditor.setWaypoints(
+                    project, file, diagram, edgeId, waypoints,
+                    FlowableBundle.message("edit.command.bend"),
                 )
             }
         }

@@ -12,6 +12,8 @@
   <br/>図を編集できる。移動・大きさ変更・接続線の作成・パレットからの追加・削除・改名に対応し、変更は XML に書き戻る。XML が唯一の正なので Undo もそのまま効く。`BPMNDI` を持たない定義は最初の編集で図形情報が書き出される。
 - The palette offers 16 elements grouped by events, activities and gateways, each with its own icon and a pointer tool (Escape also disarms). Boundary events attach to the activity they are dropped on. The structure view uses the same icons.
   <br/>パレットは 16 種類をイベント・アクティビティ・ゲートウェイに分けて並べ、要素ごとに専用のアイコンを持つ。選択の道具があり Esc でも解除できる。境界イベントは落とした先のアクティビティに貼り付く。構造ビューも同じアイコンを使う。
+- Connection shape can be edited: drag a bend point to move it, drag the middle of a segment to add one, double-click to remove it. The ends stay docked to the shapes.
+  <br/>線の形を編集できる。折れ点をドラッグして動かし、線分の中ほどを掴むと折れ点が増え、ダブルクリックで消える。両端は図形の縁に吸い付いたまま。
 - Split editor for `*.bpmn`, `*.bpmn20.xml` and any XML file in the BPMN 2.0 namespace: XML on the left, a live diagram on the right, with clicks and caret moves synchronised both ways.
   <br/>`*.bpmn` / `*.bpmn20.xml`、および BPMN 2.0 名前空間を含む `*.xml` を分割エディタで開く。左が XML、右が図で、図形のクリックとキャレット移動が双方向に同期する。
 - Automatic layout for definitions without `BPMNDI` diagram information, so hand-written Flowable definitions render too.

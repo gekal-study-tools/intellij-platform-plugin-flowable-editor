@@ -40,6 +40,7 @@ import javax.swing.KeyStroke
 import javax.swing.Scrollable
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -131,6 +132,12 @@ class BpmnDiagramCanvas :
 
         /** 線を引いている最中。[to] は現在のカーソル位置 (モデル座標)。 */
         data class Connect(val source: BpmnNode, val to: BpmnPoint, val target: BpmnNode?) : Gesture
+
+        /**
+         * 線の折れ点を動かしている最中。
+         * [index] は [points] の何番目を掴んでいるか。
+         */
+        data class Bend(val edge: BpmnEdge, val index: Int, val points: List<BpmnPoint>) : Gesture
     }
 
     /** 移動・大きさ変更中に見せる仮の矩形。確定するまで XML には書かない。 */
@@ -187,7 +194,10 @@ class BpmnDiagramCanvas :
             }
 
             override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2) renameSelection()
+                if (e.clickCount != 2) return
+                // 線の折れ点はダブルクリックで消す。名前の編集より先に見る。
+                if (removeBendAt(e.point)) return
+                renameSelection()
             }
         }
         addMouseListener(mouse)
@@ -290,6 +300,15 @@ class BpmnDiagramCanvas :
             }
         }
 
+        // 選択中の線の折れ点。図形より手前に判定する。
+        (selection as? BpmnEdge)?.let { edge ->
+            beginBendGesture(edge, e.point, x, y)?.let { started ->
+                gesture = started
+                repaint()
+                return true
+            }
+        }
+
         val node = diagram.nodeAt(x, y) ?: return false
         val bounds = node.bounds ?: return false
         if (node.id.isEmpty()) return false
@@ -333,8 +352,49 @@ class BpmnDiagramCanvas :
                 return true
             }
 
+            is Gesture.Bend -> {
+                val moved = current.points.toMutableList()
+                moved[current.index] = BpmnPoint(x, y)
+                gesture = current.copy(points = moved)
+                repaint()
+                return true
+            }
+
             Gesture.None -> return false
         }
+    }
+
+    /**
+     * 折れ点を掴めるなら、その操作を組み立てる。
+     *
+     * 既にある折れ点を掴めば動かす。線分の中ほどを掴めば、そこに新しい折れ点を
+     * 差し込んで動かし始める。両端は図形に吸い付かせているので掴ませない。
+     */
+    private fun beginBendGesture(edge: BpmnEdge, point: Point, x: Double, y: Double): Gesture? {
+        val points = edge.waypoints
+        if (points.size < 2) return null
+        val radius = BpmnHandles.RADIUS + 2
+
+        // 途中の折れ点
+        for (index in 1 until points.size - 1) {
+            val view = modelToView(points[index].x, points[index].y)
+            if (abs(view.x - point.x) <= radius && abs(view.y - point.y) <= radius) {
+                return Gesture.Bend(edge, index, points)
+            }
+        }
+
+        // 線分の中ほど: 新しい折れ点を差し込む
+        for (index in 0 until points.size - 1) {
+            val midX = (points[index].x + points[index + 1].x) / 2
+            val midY = (points[index].y + points[index + 1].y) / 2
+            val view = modelToView(midX, midY)
+            if (abs(view.x - point.x) <= radius && abs(view.y - point.y) <= radius) {
+                val inserted = points.toMutableList()
+                inserted.add(index + 1, BpmnPoint(x, y))
+                return Gesture.Bend(edge, index + 1, inserted)
+            }
+        }
+        return null
     }
 
     /** 指を離したところで確定し、XML へ書き戻す。 */
@@ -359,6 +419,12 @@ class BpmnDiagramCanvas :
                 val target = current.target
                 if (listener != null && target != null) {
                     listener.onConnect(current.source.id, target.id)
+                }
+            }
+
+            is Gesture.Bend -> {
+                if (listener != null && current.edge.id.isNotEmpty()) {
+                    listener.onWaypointsChanged(current.edge.id, current.points)
                 }
             }
 
@@ -392,6 +458,24 @@ class BpmnDiagramCanvas :
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "bpmn.delete")
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "bpmn.delete")
         actionMap.put("bpmn.delete", action)
+    }
+
+    /** 折れ点をダブルクリックで消す。消したら true。 */
+    private fun removeBendAt(point: Point): Boolean {
+        val listener = editListener ?: return false
+        val edge = selection as? BpmnEdge ?: return false
+        val points = edge.waypoints
+        if (points.size <= 2 || edge.id.isEmpty()) return false
+
+        val radius = BpmnHandles.RADIUS + 2
+        for (index in 1 until points.size - 1) {
+            val view = modelToView(points[index].x, points[index].y)
+            if (abs(view.x - point.x) <= radius && abs(view.y - point.y) <= radius) {
+                listener.onWaypointsChanged(edge.id, points.filterIndexed { i, _ -> i != index })
+                return true
+            }
+        }
+        return false
     }
 
     /** ダブルクリックで名前を編集する。 */
@@ -668,7 +752,20 @@ class BpmnDiagramCanvas :
 
         when (val current = gesture) {
             is Gesture.Connect -> paintConnectionPreview(g, current, stroke)
+
+            is Gesture.Bend -> {
+                paintPolyline(g, current.points, stroke)
+                paintBendHandles(g, current.points)
+                return
+            }
+
             else -> Unit
+        }
+
+        // 線を選んでいるときは折れ点のつまみを出す
+        (selection as? BpmnEdge)?.let { edge ->
+            paintBendHandles(g, edge.waypoints)
+            return
         }
 
         // つまみは選択中の図形にだけ出す
@@ -725,6 +822,53 @@ class BpmnDiagramCanvas :
                     target.height + margin * 2,
                 ),
             )
+        }
+    }
+
+    private fun paintPolyline(g: Graphics2D, points: List<BpmnPoint>, stroke: BasicStroke) {
+        if (points.size < 2) return
+        g.color = BpmnColors.SELECTION
+        g.stroke = stroke
+        g.draw(
+            Path2D.Double().apply {
+                moveTo(points.first().x, points.first().y)
+                points.drop(1).forEach { lineTo(it.x, it.y) }
+            },
+        )
+    }
+
+    /**
+     * 折れ点のつまみ。
+     *
+     * 既にある折れ点は塗りつぶし、線分の中ほどには薄い印を置く。
+     * 薄いほうを掴むと、そこに新しい折れ点が差し込まれる。
+     */
+    private fun paintBendHandles(g: Graphics2D, points: List<BpmnPoint>) {
+        if (points.size < 2) return
+        val radius = BpmnHandles.RADIUS / zoom
+        g.stroke = BasicStroke((1.0 / zoom).toFloat())
+
+        for (index in 1 until points.size - 1) {
+            val circle = Ellipse2D.Double(
+                points[index].x - radius,
+                points[index].y - radius,
+                radius * 2,
+                radius * 2,
+            )
+            g.color = BpmnColors.SELECTION
+            g.fill(circle)
+            g.color = BpmnColors.CANVAS
+            g.draw(circle)
+        }
+
+        for (index in 0 until points.size - 1) {
+            val midX = (points[index].x + points[index + 1].x) / 2
+            val midY = (points[index].y + points[index + 1].y) / 2
+            val circle = Ellipse2D.Double(midX - radius * 0.7, midY - radius * 0.7, radius * 1.4, radius * 1.4)
+            g.color = BpmnColors.CANVAS
+            g.fill(circle)
+            g.color = BpmnColors.SELECTION
+            g.draw(circle)
         }
     }
 

@@ -7,9 +7,12 @@ import com.github.gekal.flowableeditor.editor.BpmnDiagramCanvas
 import com.github.gekal.flowableeditor.editor.BpmnHandle
 import com.github.gekal.flowableeditor.editor.BpmnHandles
 import com.github.gekal.flowableeditor.model.BpmnBounds
+import com.github.gekal.flowableeditor.model.BpmnConnectionKind
 import com.github.gekal.flowableeditor.model.BpmnDiagram
+import com.github.gekal.flowableeditor.model.BpmnEdge
 import com.github.gekal.flowableeditor.model.BpmnElementKind
 import com.github.gekal.flowableeditor.model.BpmnNode
+import com.github.gekal.flowableeditor.model.BpmnPoint
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.components.JBScrollPane
 import java.awt.Dimension
@@ -47,6 +50,7 @@ class BpmnCanvasEditTest : BasePlatformTestCase() {
         val created = mutableListOf<Created>()
         val deleted = mutableListOf<List<String>>()
         val renamed = mutableListOf<Pair<String, String>>()
+        val waypoints = mutableListOf<Pair<String, List<BpmnPoint>>>()
 
         override fun onBoundsChanged(elementId: String, bounds: BpmnBounds, isResize: Boolean) {
             this.bounds += Triple(elementId, bounds, isResize)
@@ -54,6 +58,10 @@ class BpmnCanvasEditTest : BasePlatformTestCase() {
 
         override fun onConnect(sourceId: String, targetId: String) {
             connections += sourceId to targetId
+        }
+
+        override fun onWaypointsChanged(edgeId: String, waypoints: List<BpmnPoint>) {
+            this.waypoints += edgeId to waypoints
         }
 
         override fun onCreate(
@@ -313,5 +321,86 @@ class BpmnCanvasEditTest : BasePlatformTestCase() {
             }
         }
         assertTrue("選択中の図形につまみが描かれる (見つかった画素: $found)", found > 30)
+    }
+
+    // --- 線の折れ点 ----------------------------------------------------------
+
+    /** 折れ点を持つ線を 1 本だけ載せた図に差し替える。 */
+    private fun withBentEdge(): BpmnEdge {
+        val edge = BpmnEdge(
+            id = "flow1",
+            name = null,
+            sourceRef = "first",
+            targetRef = "second",
+            kind = BpmnConnectionKind.SEQUENCE_FLOW,
+            waypoints = listOf(BpmnPoint(100.0, 40.0), BpmnPoint(200.0, 40.0), BpmnPoint(300.0, 240.0)),
+        )
+        canvas.setDiagram(
+            BpmnDiagram(
+                nodes = listOf(node("first", 0.0, 0.0), node("second", 300.0, 200.0)),
+                edges = listOf(edge),
+                hasDiagramInterchange = true,
+            ),
+            fit = false,
+        )
+        canvas.select(edge, scroll = false)
+        return edge
+    }
+
+    fun `test dragging a bend point moves it`() {
+        withBentEdge()
+
+        drag(view(200.0, 40.0), view(220.0, 120.0))
+
+        val (id, points) = recorded.waypoints.single()
+        assertEquals("flow1", id)
+        assertEquals("折れ点の数は変わらない", 3, points.size)
+        assertEquals(220.0, points[1].x, 1.0)
+        assertEquals(120.0, points[1].y, 1.0)
+    }
+
+    fun `test dragging the middle of a segment adds a bend point`() {
+        withBentEdge()
+
+        // 最初の線分 (100,40)-(200,40) の中点は (150,40)
+        drag(view(150.0, 40.0), view(150.0, 130.0))
+
+        val (_, points) = recorded.waypoints.single()
+        assertEquals("折れ点が 1 つ増える", 4, points.size)
+        assertEquals(150.0, points[1].x, 1.0)
+        assertEquals(130.0, points[1].y, 1.0)
+    }
+
+    fun `test double clicking a bend point removes it`() {
+        withBentEdge()
+
+        canvas.dispatchEvent(mouse(MouseEvent.MOUSE_CLICKED, view(200.0, 40.0), clicks = 2))
+
+        val (_, points) = recorded.waypoints.single()
+        assertEquals("折れ点が 1 つ減る", 2, points.size)
+    }
+
+    fun `test the last two points are never removed`() {
+        val edge = BpmnEdge(
+            id = "flow1",
+            name = null,
+            sourceRef = "first",
+            targetRef = "second",
+            kind = BpmnConnectionKind.SEQUENCE_FLOW,
+            waypoints = listOf(BpmnPoint(100.0, 40.0), BpmnPoint(300.0, 240.0)),
+        )
+        canvas.setDiagram(
+            BpmnDiagram(
+                nodes = listOf(node("first", 0.0, 0.0), node("second", 300.0, 200.0)),
+                edges = listOf(edge),
+                hasDiagramInterchange = true,
+            ),
+            fit = false,
+        )
+        canvas.select(edge, scroll = false)
+
+        canvas.dispatchEvent(mouse(MouseEvent.MOUSE_CLICKED, view(100.0, 40.0), clicks = 2))
+
+        assertTrue("両端は消せない", recorded.waypoints.isEmpty())
     }
 }

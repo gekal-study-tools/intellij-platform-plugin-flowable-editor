@@ -87,6 +87,33 @@ object BpmnDocumentEditor {
         }
     }
 
+    /**
+     * 線の折れ点を書き戻す。
+     *
+     * 両端は図形の縁に合わせ直す。途中の点だけが手で置かれたものなので、
+     * 渡された位置をそのまま使う。
+     */
+    fun setWaypoints(
+        project: Project,
+        file: XmlFile,
+        diagram: BpmnDiagram,
+        edgeId: String,
+        waypoints: List<BpmnPoint>,
+        commandName: String,
+    ) {
+        if (waypoints.size < 2) return
+        runCommand(project, file, commandName) {
+            val root = file.rootTag ?: return@runCommand
+            ensureDiagramInterchange(root, diagram)
+
+            val edge = diagram.edges.firstOrNull { it.id == edgeId } ?: return@runCommand
+            val source = diagram.nodesById[edge.sourceRef]?.bounds
+            val target = diagram.nodesById[edge.targetRef]?.bounds
+            val docked = BpmnGeometry.reroute(waypoints, source, target)
+            writeEdgeWaypoints(root, edgeId, docked)
+        }
+    }
+
     // --- 名前 ----------------------------------------------------------------
 
     /** `name` 属性を書き換える。空文字なら属性ごと外す。 */

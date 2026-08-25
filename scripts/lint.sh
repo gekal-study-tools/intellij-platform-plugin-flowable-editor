@@ -17,6 +17,11 @@ if [ "${1:-}" = "--fix" ]; then
   ok "修正しました。git diff で内容を確認してください"
 else
   info "コードスタイルを検査します"
-  "$GRADLE" ktlintCheck
+  # 失敗しても最終行に結果を出す。Gradle の出力で流れると見落とすため。
+  status=0
+  "$GRADLE" ktlintCheck || status=$?
+  if [ "$status" -ne 0 ]; then
+    die "コードスタイル違反があります (scripts/lint.sh --fix で直せるものもあります)"
+  fi
   ok "違反はありません"
 fi

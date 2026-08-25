@@ -60,12 +60,69 @@ object BpmnAutoLayout {
             .toMap()
         val laneOf = laneAssignments(diagram)
 
+        // 手で決めた大きさと、手で置いた折れ点を控えておく
+        val sizes = diagram.nodes
+            .filter { it.id.isNotEmpty() }
+            .mapNotNull { node -> node.bounds?.let { node.id to (it.width to it.height) } }
+            .toMap()
+        val before = diagram.nodes
+            .filter { it.id.isNotEmpty() }
+            .mapNotNull { node -> node.bounds?.let { node.id to it } }
+            .toMap()
+        val bends = diagram.edges
+            .filter { it.id.isNotEmpty() && it.waypoints.size > 2 }
+            .associate { it.id to it.waypoints }
+
         diagram.nodes.forEach { if (!it.kind.isPoolOrLane) it.bounds = null }
         diagram.edges.forEach { it.waypoints = emptyList() }
         layout(diagram)
+        restoreSizes(diagram, sizes)
 
         if (containers.isNotEmpty()) fitIntoLanes(diagram, containers, laneOf)
         BpmnEdgeRouter.routeMissingEdges(diagram)
+        restoreBends(diagram, before, bends)
+    }
+
+    /**
+     * 手で決めた大きさを取り戻す。
+     *
+     * 並べ直すのは位置であって大きさではない。広げたサブプロセスや
+     * 大きくしたタスクが毎回既定の寸法に戻ってしまうと、整列を押しづらくなる。
+     * 中身が入る大きさは要るので、計算結果より小さくはしない。
+     */
+    private fun restoreSizes(diagram: BpmnDiagram, sizes: Map<String, Pair<Double, Double>>) {
+        for (node in diagram.nodes) {
+            if (node.kind.isPoolOrLane) continue
+            val bounds = node.bounds ?: continue
+            val (width, height) = sizes[node.id] ?: continue
+            node.bounds = BpmnBounds(
+                bounds.x,
+                bounds.y,
+                maxOf(bounds.width, width),
+                maxOf(bounds.height, height),
+            )
+        }
+    }
+
+    /**
+     * 位置が変わらなかった線の折れ点を戻す。
+     *
+     * 両端の図形が動いていないなら、手で置いた折れ点はそのまま通用する。
+     * どちらかが動いた線は形が変わっているので、引き直したものを使う。
+     */
+    private fun restoreBends(
+        diagram: BpmnDiagram,
+        before: Map<String, BpmnBounds>,
+        bends: Map<String, List<BpmnPoint>>,
+    ) {
+        for (edge in diagram.edges) {
+            val original = bends[edge.id] ?: continue
+            val source = edge.sourceRef ?: continue
+            val target = edge.targetRef ?: continue
+            val sourceMoved = diagram.nodesById[source]?.bounds != before[source]
+            val targetMoved = diagram.nodesById[target]?.bounds != before[target]
+            if (!sourceMoved && !targetMoved) edge.waypoints = original
+        }
     }
 
     /** 配置し直せる図か。並べる相手が居ることだけ確かめる。 */

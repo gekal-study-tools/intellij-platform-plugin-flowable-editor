@@ -919,4 +919,70 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
         assertTrue("下の帯が重ならない", lane2.y >= lane1.bottom - 1)
         assertTrue("プールが帯を覆う", pool.bottom >= lane2.bottom - 1)
     }
+
+    // --- 整列と手作業 --------------------------------------------------------
+
+    fun `test rearranging keeps a size set by hand`() {
+        val (file, _) = open("orderProcessWithDi.bpmn20.xml")
+        // approve を大きくしておく
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("approve" to BpmnBounds(180.0, 75.0, 260.0, 180.0)),
+            "resize",
+        )
+
+        val arranged = reparse(file)
+        BpmnAutoLayout.relayout(arranged)
+        BpmnDocumentEditor.applyLayout(project, file, arranged, "layout")
+
+        val updated = reparse(file).nodesById.getValue("approve").bounds!!
+        assertEquals("幅が既定に戻らない", 260.0, updated.width)
+        assertEquals("高さが既定に戻らない", 180.0, updated.height)
+    }
+
+    fun `test rearranging keeps the bends of a connection whose ends did not move`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+        // 折れ点を手で置く
+        val bent = listOf(
+            com.github.gekal.flowableeditor.model.BpmnPoint(210.0, 160.0),
+            com.github.gekal.flowableeditor.model.BpmnPoint(400.0, 210.0),
+            com.github.gekal.flowableeditor.model.BpmnPoint(600.0, 160.0),
+        )
+        BpmnDocumentEditor.setWaypoints(project, file, reparse(file), "f1", bent, "bend")
+        val placed = reparse(file).edges.first { it.id == "f1" }.waypoints
+        assertEquals(3, placed.size)
+
+        // 位置が変わらない状態で整列する
+        val arranged = reparse(file)
+        val beforeStart = arranged.nodesById.getValue("start").bounds
+        BpmnAutoLayout.relayout(arranged)
+
+        // 図形が動かなかった線だけ、折れ点が残る
+        if (arranged.nodesById.getValue("start").bounds == beforeStart) {
+            assertEquals("動いていない線の折れ点は残る", placed, arranged.edges.first { it.id == "f1" }.waypoints)
+        }
+    }
+
+    fun `test rearranging redraws the bends of a connection whose ends moved`() {
+        val (file, _) = open("orderProcessWithDi.bpmn20.xml")
+        val bent = listOf(
+            com.github.gekal.flowableeditor.model.BpmnPoint(130.0, 115.0),
+            com.github.gekal.flowableeditor.model.BpmnPoint(150.0, 400.0),
+            com.github.gekal.flowableeditor.model.BpmnPoint(180.0, 115.0),
+        )
+        BpmnDocumentEditor.setWaypoints(project, file, reparse(file), "flow1", bent, "bend")
+
+        // 大きく崩してから整列すると、図形が動くので線は引き直される
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("approve" to BpmnBounds(900.0, 900.0, 100.0, 80.0)),
+            "move",
+        )
+        val arranged = reparse(file)
+        BpmnAutoLayout.relayout(arranged)
+
+        val after = arranged.edges.first { it.id == "flow1" }.waypoints
+        assertFalse("動いた線は引き直される", after == bent)
+        assertTrue(after.size >= 2)
+    }
 }

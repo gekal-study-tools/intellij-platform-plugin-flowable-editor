@@ -19,7 +19,7 @@ kotlin {
  * 組み立てる版。既定は gradle.properties の version。
  *
  * Marketplace は同じ版を上書きできないため、EAP のように何度も出すチャンネルでは
- * `-PpluginVersion=0.1.0-eap.3` のようにビルド番号付きの版を渡す。
+ * `-PpluginVersion=0.2.0-eap.3` のようにビルド番号付きの版を渡す。
  * 番号の採番は scripts/publish.sh が行う。
  */
 val pluginVersion: Provider<String> = providers.gradleProperty("pluginVersion")
@@ -71,7 +71,7 @@ intellijPlatform {
         }
 
         val changelog = project.changelog
-        // 更新履歴は素の版で引く。EAP の版 (0.1.0-eap.3) は CHANGELOG に無いので、
+        // 更新履歴は素の版で引く。EAP の版 (0.2.0-eap.3) は CHANGELOG に無いので、
         // その場合は Unreleased の内容がそのまま載る。
         changeNotes = providers.gradleProperty("version").map { releaseVersion ->
             with(changelog) {

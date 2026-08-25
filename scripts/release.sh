@@ -2,10 +2,10 @@
 #
 # 版を上げて、CHANGELOG を確定し、コミットまで行う。
 #
-#   scripts/release.sh 0.1.0            検証してコミットまで
-#   scripts/release.sh 0.1.0 --push     コミット後に push もする
+#   scripts/release.sh 0.2.0            検証してコミットまで
+#   scripts/release.sh 0.2.0 --push     コミット後に push もする
 #
-# push すると GitHub Actions が下書きのリリースを作る (タグは v0.1.0 の形)。
+# push すると GitHub Actions が下書きのリリースを作る (タグは v0.2.0 の形)。
 # 公開するとリリース用のワークフローが動く、という流れ。
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -13,7 +13,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 handle_help "${BASH_SOURCE[0]}" "$@"
 
 new_version="${1:-}"
-[ -n "$new_version" ] || die "版を指定してください (例: scripts/release.sh 0.1.0)"
+[ -n "$new_version" ] || die "版を指定してください (例: scripts/release.sh 0.2.0)"
 [[ "$new_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$ ]] \
   || die "版の書き方が想定と違います: $new_version"
 

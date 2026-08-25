@@ -265,13 +265,14 @@ src/test/testData/  検査・描画テスト用の BPMN 定義
 
 登録済み: **[plugins.jetbrains.com/plugin/33780](https://plugins.jetbrains.com/plugin/33780)**（xmlId `com.github.gekal.flowableeditor`）
 
-0.1.0 は画面から手動でアップロードし、審査待ちの状態。
-そのときのコードにはタグ `0.1.0` が付いている（`bede292`）。
-GitHub のリリースとしては作らず、タグだけを残してある —
-Build ワークフローは古い下書きを毎回消すため、過去版の下書きを置いておけない。
-リリースとして残すのは 0.1.0 以降。
+**0.1.0 は公開済み** — GitHub リリース
+[`v0.1.0`](https://github.com/gekal-study-tools/intellij-platform-plugin-flowable-editor/releases/tag/v0.1.0)
+から Release ワークフローが走り、Marketplace へ上がっている。
+JetBrains の審査を通れば配信される。
 
-以下は初回に実際に通った手順。次に別のプラグインを出すときのために残しておく。
+初回だけは画面から手でプラグインを登録する必要があった（プラグイン自体の
+登録は API からできないため）。以下はそのときに通った手順。
+次に別のプラグインを出すときのために残しておく。
 
 ```bash
 scripts/build.sh --clean          # build/distributions/*.zip ができる
@@ -316,7 +317,7 @@ scripts/build.sh --clean          # build/distributions/*.zip ができる
 **GitHub 経由（推奨）**
 
 ```bash
-scripts/release.sh 0.1.0 --push
+scripts/release.sh 0.2.0 --push      # 次の版を指定する
 ```
 
 push すると Build ワークフローが下書きリリースを作る。
@@ -341,25 +342,25 @@ Marketplace は**同じ版を上げ直せない**。EAP のように同じ内容
 **ビルド番号を自動で進めた版**を組み立てる。
 
 ```
-gradle.properties の version = 0.1.0
+gradle.properties の version = 0.2.0   (公開済みの 0.1.0 ではなく、次の版)
 
-1 回目: scripts/publish.sh --channel eap  ->  0.1.0-eap.1
-2 回目: scripts/publish.sh --channel eap  ->  0.1.0-eap.2
-3 回目: scripts/publish.sh --channel eap  ->  0.1.0-eap.3
+1 回目: scripts/publish.sh --channel eap  ->  0.2.0-eap.1
+2 回目: scripts/publish.sh --channel eap  ->  0.2.0-eap.2
+3 回目: scripts/publish.sh --channel eap  ->  0.2.0-eap.3
 ```
 
 番号は Marketplace の公開済みバージョンから次の空き番号を選ぶので、
 手元の状態に依存せず、続けて実行しても衝突しない。
-チャンネル名はそのまま使われるので `--channel beta` なら `0.1.0-beta.1` になる。
+チャンネル名はそのまま使われるので `--channel beta` なら `0.2.0-beta.1` になる。
 
 版は `-PpluginVersion` で Gradle に渡され、zip の名前と `plugin.xml` の
 `<version>` の両方に反映される。手動で組み立てたいときは同じように渡せる。
 
 ```bash
-./gradlew buildPlugin -PpluginVersion=0.1.0-eap.3
+./gradlew buildPlugin -PpluginVersion=0.2.0-eap.3
 ```
 
-素の版（`0.1.0`）がすでに公開されている状態で EAP を出そうとすると警告する。
+素の版がすでに公開されている状態で EAP を出そうとすると警告する。
 `0.1.0-eap.1` は版の比較では `0.1.0` より**前**として扱われるため、
 次の版に向けた事前公開なら先に `gradle.properties` の `version` を上げておく。
 更新履歴は素の版で引くので、EAP には `Unreleased` の内容が載る。

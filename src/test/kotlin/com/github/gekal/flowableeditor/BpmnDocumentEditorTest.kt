@@ -573,4 +573,120 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
         BpmnAutoLayout.relayout(diagram)
         assertEquals("何も動かさない", before, diagram.nodesById.getValue("start").bounds)
     }
+
+    // --- プールとレーンの作成 ------------------------------------------------
+
+    fun `test creating the first pool wraps the existing process`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+
+        val id = BpmnDocumentEditor.createElement(
+            project, file, diagram, BpmnPaletteItem.POOL,
+            BpmnBounds(60.0, 40.0, 600.0, 250.0), null, "add",
+        )
+
+        assertNotNull(id)
+        assertTrue("collaboration ができる", file.text.contains("<collaboration"))
+        assertTrue("既にあるプロセスを指す", file.text.contains("""processRef="orderProcess""""))
+        val updated = reparse(file)
+        assertEquals(BpmnElementKind.POOL, updated.nodesById.getValue(id!!).kind)
+        assertEquals(60.0, updated.nodesById.getValue(id).bounds!!.x)
+    }
+
+    fun `test the diagram plane points at the collaboration once a pool exists`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+
+        BpmnDocumentEditor.createElement(
+            project, file, diagram, BpmnPaletteItem.POOL,
+            BpmnBounds(60.0, 40.0, 600.0, 250.0), null, "add",
+        )
+
+        val plane = file.text.substringAfter("<bpmndi:BPMNPlane").substringBefore(">")
+        assertFalse("面がプロセスを指したままにならない", plane.contains("\"orderProcess\""))
+        assertTrue("面が collaboration を指す", plane.contains("collaboration"))
+    }
+
+    fun `test a second pool gets its own process`() {
+        val (file, _) = open("orderProcessWithDi.bpmn20.xml")
+        BpmnDocumentEditor.createElement(
+            project, file, reparse(file), BpmnPaletteItem.POOL,
+            BpmnBounds(60.0, 40.0, 600.0, 250.0), null, "add",
+        )
+
+        val second = BpmnDocumentEditor.createElement(
+            project, file, reparse(file), BpmnPaletteItem.POOL,
+            BpmnBounds(60.0, 320.0, 600.0, 250.0), null, "add",
+        )
+
+        assertNotNull(second)
+        assertEquals("プロセスが 2 つになる", 2, Regex("<process ").findAll(file.text).count())
+        assertEquals("プールが 2 つになる", 2, Regex("<participant ").findAll(file.text).count())
+    }
+
+    fun `test creating a lane adds it to the process lane set`() {
+        val (file, diagram) = open("collaborationWithLanes.bpmn20.xml")
+
+        val id = BpmnDocumentEditor.createElement(
+            project, file, diagram, BpmnPaletteItem.LANE,
+            BpmnBounds(130.0, 350.0, 570.0, 125.0), "pool1", "add",
+        )
+
+        assertNotNull(id)
+        val updated = reparse(file)
+        assertEquals(BpmnElementKind.LANE, updated.nodesById.getValue(id!!).kind)
+        assertEquals("既存のレーンと合わせて 3 本", 3, updated.nodes.count { it.kind == BpmnElementKind.LANE })
+    }
+
+    fun `test creating a lane makes a lane set when there is none`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+
+        val id = BpmnDocumentEditor.createElement(
+            project, file, diagram, BpmnPaletteItem.LANE,
+            BpmnBounds(60.0, 40.0, 600.0, 125.0), null, "add",
+        )
+
+        assertNotNull(id)
+        assertTrue("laneSet ができる", file.text.contains("<laneSet"))
+    }
+
+    // --- 線の種類 ------------------------------------------------------------
+
+    fun `test connecting across pools makes a message flow`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+        // 2 つ目のプールと、その中の要素を用意する
+        val pool2 = BpmnDocumentEditor.createElement(
+            project, file, reparse(file), BpmnPaletteItem.POOL,
+            BpmnBounds(100.0, 500.0, 600.0, 250.0), null, "add",
+        )
+        val task = BpmnDocumentEditor.createElement(
+            project, file, reparse(file), BpmnPaletteItem.USER_TASK,
+            BpmnBounds(200.0, 560.0, 100.0, 80.0), null, "add",
+        )
+        assertNotNull(pool2)
+
+        BpmnDocumentEditor.connect(project, file, reparse(file), "start", task!!, "connect")
+
+        assertTrue("プールをまたぐ線はメッセージフロー", file.text.contains("<messageFlow"))
+    }
+
+    fun `test connecting a text annotation makes an association`() {
+        val (file, _) = open("orderProcessWithDi.bpmn20.xml")
+        val note = BpmnDocumentEditor.createElement(
+            project, file, reparse(file), BpmnPaletteItem.TEXT_ANNOTATION,
+            BpmnBounds(200.0, 300.0, 120.0, 50.0), null, "add",
+        )
+
+        BpmnDocumentEditor.connect(project, file, reparse(file), note!!, "approve", "connect")
+
+        assertTrue("注記に繋ぐ線は関連", file.text.contains("<association"))
+        assertFalse("シーケンスフローは増えない", file.text.contains("""id="sequenceFlow_1""""))
+    }
+
+    fun `test a plain connection is still a sequence flow`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+
+        val id = BpmnDocumentEditor.connect(project, file, diagram, "ship", "start", "connect")
+
+        assertNotNull(id)
+        assertTrue(id!!.startsWith("sequenceFlow"))
+    }
 }

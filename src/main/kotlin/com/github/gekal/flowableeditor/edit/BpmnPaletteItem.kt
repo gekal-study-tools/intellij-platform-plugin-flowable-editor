@@ -60,6 +60,13 @@ enum class BpmnPaletteItem(
     CALL_ACTIVITY(BpmnElementKind.CALL_ACTIVITY, "Call activity", BpmnPaletteGroup.ACTIVITIES, "CallActivity"),
     SUB_PROCESS(BpmnElementKind.SUB_PROCESS, "Sub process", BpmnPaletteGroup.ACTIVITIES, "SubProcess"),
 
+    TEXT_ANNOTATION(
+        BpmnElementKind.TEXT_ANNOTATION,
+        "Text annotation",
+        BpmnPaletteGroup.ACTIVITIES,
+        "TextAnnotation",
+    ),
+
     EXCLUSIVE_GATEWAY(
         BpmnElementKind.EXCLUSIVE_GATEWAY,
         "Exclusive gateway",
@@ -84,6 +91,8 @@ enum class BpmnPaletteItem(
         BpmnPaletteGroup.GATEWAYS,
         "EventGateway",
     ),
+    POOL(BpmnElementKind.POOL, "Pool", BpmnPaletteGroup.CONTAINERS, "Pool"),
+    LANE(BpmnElementKind.LANE, "Lane", BpmnPaletteGroup.CONTAINERS, "Lane"),
     ;
 
     val tagName: String get() = kind.tagName
@@ -94,4 +103,5 @@ enum class BpmnPaletteGroup(val label: String) {
     EVENTS("Events"),
     ACTIVITIES("Activities"),
     GATEWAYS("Gateways"),
+    CONTAINERS("Pools and lanes"),
 }

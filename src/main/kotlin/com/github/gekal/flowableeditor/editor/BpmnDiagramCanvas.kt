@@ -7,6 +7,7 @@ import com.github.gekal.flowableeditor.model.BpmnBounds
 import com.github.gekal.flowableeditor.model.BpmnCategory
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnEdge
+import com.github.gekal.flowableeditor.model.BpmnElementKind
 import com.github.gekal.flowableeditor.model.BpmnGeometry
 import com.github.gekal.flowableeditor.model.BpmnNode
 import com.github.gekal.flowableeditor.model.BpmnPoint
@@ -88,6 +89,11 @@ class BpmnDiagramCanvas :
 
         /** 格子の間隔 (モデル座標)。BPMN の図形寸法に合わせた値。 */
         private const val GRID_MODEL_STEP = 20.0
+
+        /** パレットから置く区画の既定の大きさ。帯として置きたいので広く取る。 */
+        private const val CONTAINER_WIDTH = 600.0
+        private const val POOL_HEIGHT = 250.0
+        private const val LANE_HEIGHT = 125.0
 
         /** 画面上での格子の間隔をこの範囲に収める。詰まりすぎ / 空きすぎを防ぐ。 */
         private const val MIN_GRID_PX = 14.0
@@ -266,10 +272,18 @@ class BpmnDiagramCanvas :
             return true
         }
 
-        // 押した位置が図形の中心に来るようにする
-        val bounds = BpmnBounds(x - size.first / 2, y - size.second / 2, size.first, size.second)
-        // 落とした先がサブプロセスなら、その中に入れる
-        val container = under?.takeIf { it.kind.isSubProcess }?.id
+        // 区画は帯として置きたいので、押した位置を左上にして広く取る
+        val bounds = if (item.kind.isPoolOrLane) {
+            BpmnBounds(x, y, CONTAINER_WIDTH, if (item.kind == BpmnElementKind.POOL) POOL_HEIGHT else LANE_HEIGHT)
+        } else {
+            // 押した位置が図形の中心に来るようにする
+            BpmnBounds(x - size.first / 2, y - size.second / 2, size.first, size.second)
+        }
+        // 落とした先がサブプロセスなら中に入れる。レーンはプールの上に落とせばそのプールへ。
+        val container = when {
+            item.kind == BpmnElementKind.LANE -> under?.takeIf { it.kind == BpmnElementKind.POOL }?.id
+            else -> under?.takeIf { it.kind.isSubProcess }?.id
+        }
 
         armedPaletteItem = null
         listener.onCreate(item, bounds, container)

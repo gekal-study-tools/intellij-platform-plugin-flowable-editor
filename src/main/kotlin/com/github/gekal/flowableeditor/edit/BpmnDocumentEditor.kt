@@ -9,6 +9,7 @@ import com.github.gekal.flowableeditor.edit.BpmnXmlSupport.findShape
 import com.github.gekal.flowableeditor.edit.BpmnXmlSupport.formatCoordinate
 import com.github.gekal.flowableeditor.edit.BpmnXmlSupport.qualify
 import com.github.gekal.flowableeditor.model.BpmnBounds
+import com.github.gekal.flowableeditor.model.BpmnCategory
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnElementKind
 import com.github.gekal.flowableeditor.model.BpmnGeometry
@@ -233,6 +234,16 @@ object BpmnDocumentEditor {
                 resolveContainer(file, root, containerId) ?: return@runCommand
             }
 
+            // プールとレーンは置き場所も作り方も違うので、専用の道筋に分ける
+            if (item.kind == BpmnElementKind.POOL) {
+                created = createPool(file, root, diagram, bounds)
+                return@runCommand
+            }
+            if (item.kind == BpmnElementKind.LANE) {
+                created = createLane(file, root, diagram, bounds, containerId)
+                return@runCommand
+            }
+
             val id = BpmnIdGenerator.generate(file, item.tagName)
             val body = item.eventDefinition?.let { "<${childPrefix(container)}$it/>" }
             val element = container.createChildTag(item.tagName, container.namespace, body, false)
@@ -271,9 +282,11 @@ object BpmnDocumentEditor {
             if (hasFlowBetween(file, sourceId, targetId)) return@runCommand
 
             // 分岐元と同じコンテナに置く。境界イベント発の線は貼り付け先の親に置く。
-            val container = source.parentTag ?: return@runCommand
-            val id = BpmnIdGenerator.generate(file, "flow")
-            val flow = container.createChildTag("sequenceFlow", container.namespace, null, false)
+            // 何と何を結ぶかで線の種類が決まる
+            val kind = connectionKindFor(diagram, sourceId, targetId)
+            val container = containerFor(root, source, kind) ?: return@runCommand
+            val id = BpmnIdGenerator.generate(file, kind.tagName)
+            val flow = container.createChildTag(kind.tagName, container.namespace, null, false)
             val added = container.addSubTag(flow, false)
             added.setAttribute("id", id)
             added.setAttribute("sourceRef", sourceId)
@@ -285,6 +298,92 @@ object BpmnDocumentEditor {
             created = id
         }
         return created
+    }
+
+    /**
+     * プールを作る。
+     *
+     * BPMN では、プールは collaboration の participant であり、プロセスを 1 つ指す。
+     * まだ collaboration が無ければ作り、最初のプールは既にあるプロセスを指す。
+     * 2 つ目からは新しい空のプロセスを起こす。図の面 (BPMNPlane) は
+     * collaboration を指すよう付け替える。プールを持つ図の約束に合わせるため。
+     */
+    private fun createPool(file: XmlFile, root: XmlTag, diagram: BpmnDiagram, bounds: BpmnBounds): String? {
+        val existing = root.subTags.firstOrNull { it.localName == "collaboration" }
+        val collaboration = existing ?: run {
+            val tag = root.createChildTag("collaboration", root.namespace, null, false)
+            val added = root.addSubTag(tag, true)
+            added.setAttribute("id", BpmnIdGenerator.generate(file, "collaboration"))
+            added
+        }
+
+        val processId = if (existing == null) {
+            root.subTags.firstOrNull { it.localName == "process" }?.getAttributeValue("id")
+        } else {
+            null
+        } ?: createEmptyProcess(file, root)
+
+        val id = BpmnIdGenerator.generate(file, "participant")
+        val participant = collaboration.createChildTag("participant", collaboration.namespace, null, false)
+        val added = collaboration.addSubTag(participant, false)
+        added.setAttribute("id", id)
+        added.setAttribute("processRef", processId)
+
+        ensureDiagramInterchange(root, diagram)
+        // プールがあるなら、図の面は collaboration を指す
+        findPlane(root)?.setAttribute("bpmnElement", collaboration.getAttributeValue("id"))
+        writeShapeBounds(root, id, bounds)
+        return id
+    }
+
+    private fun createEmptyProcess(file: XmlFile, root: XmlTag): String {
+        val id = BpmnIdGenerator.generate(file, "process")
+        val process = root.createChildTag("process", root.namespace, null, false)
+        val added = root.addSubTag(process, false)
+        added.setAttribute("id", id)
+        added.setAttribute("isExecutable", "false")
+        return id
+    }
+
+    /**
+     * レーンを作る。
+     *
+     * レーンはプロセスの laneSet に属する。落とした先のプールが指すプロセス、
+     * 無ければ最初のプロセスに足す。laneSet が無ければ作る。
+     */
+    private fun createLane(
+        file: XmlFile,
+        root: XmlTag,
+        diagram: BpmnDiagram,
+        bounds: BpmnBounds,
+        containerId: String?,
+    ): String? {
+        val process = processForLane(root, containerId) ?: return null
+        val laneSet = process.subTags.firstOrNull { it.localName == "laneSet" } ?: run {
+            val tag = process.createChildTag("laneSet", process.namespace, null, false)
+            val added = process.addSubTag(tag, true)
+            added.setAttribute("id", BpmnIdGenerator.generate(file, "laneSet"))
+            added
+        }
+
+        val id = BpmnIdGenerator.generate(file, "lane")
+        val lane = laneSet.createChildTag("lane", laneSet.namespace, null, false)
+        val added = laneSet.addSubTag(lane, false)
+        added.setAttribute("id", id)
+
+        ensureDiagramInterchange(root, diagram)
+        writeShapeBounds(root, id, bounds)
+        return id
+    }
+
+    /** レーンを足すプロセス。プールの上に落とせばそのプールのプロセス。 */
+    private fun processForLane(root: XmlTag, containerId: String?): XmlTag? {
+        val processes = root.subTags.filter { it.localName == "process" }
+        val poolProcessId = containerId
+            ?.let { id -> findModelElement(root.containingFile as XmlFile, id) }
+            ?.takeIf { it.localName == "participant" }
+            ?.getAttributeValue("processRef")
+        return processes.firstOrNull { it.getAttributeValue("id") == poolProcessId } ?: processes.firstOrNull()
     }
 
     // --- 削除 ----------------------------------------------------------------
@@ -438,6 +537,50 @@ object BpmnDocumentEditor {
         return root.subTags.firstOrNull { it.localName == "process" }
     }
 
+    /**
+     * 結ぶ相手から線の種類を決める。
+     *
+     * 注記が絡めば関連、別のプールにまたがればメッセージフロー、
+     * それ以外はシーケンスフロー。BPMN ではこの 3 つを取り違えると意味が変わる。
+     */
+    private fun connectionKindFor(diagram: BpmnDiagram, sourceId: String, targetId: String): ConnectionTag {
+        val source = diagram.nodesById[sourceId]
+        val target = diagram.nodesById[targetId]
+
+        val touchesArtifact = source?.kind?.category == BpmnCategory.ARTIFACT ||
+            target?.kind?.category == BpmnCategory.ARTIFACT
+        if (touchesArtifact) return ConnectionTag.ASSOCIATION
+
+        val sourcePool = enclosingPool(diagram, source)
+        val targetPool = enclosingPool(diagram, target)
+        if (sourcePool != null && targetPool != null && sourcePool != targetPool) {
+            return ConnectionTag.MESSAGE_FLOW
+        }
+        return ConnectionTag.SEQUENCE_FLOW
+    }
+
+    /** その要素を包んでいるプールの id。プールが無ければ null。 */
+    private fun enclosingPool(diagram: BpmnDiagram, node: BpmnNode?): String? {
+        val bounds = node?.bounds ?: return null
+        return diagram.nodes
+            .filter { it.kind == BpmnElementKind.POOL && it.id.isNotEmpty() }
+            .firstOrNull { it.bounds?.let { pool -> encloses(pool, bounds) } == true }
+            ?.id
+    }
+
+    /** 線を置く場所。メッセージフローはプールをまたぐので collaboration に置く。 */
+    private fun containerFor(root: XmlTag, source: XmlTag, kind: ConnectionTag): XmlTag? = when (kind) {
+        ConnectionTag.MESSAGE_FLOW -> root.subTags.firstOrNull { it.localName == "collaboration" }
+        else -> source.parentTag
+    }
+
+    /** 作れる線の種類。 */
+    private enum class ConnectionTag(val tagName: String) {
+        SEQUENCE_FLOW("sequenceFlow"),
+        MESSAGE_FLOW("messageFlow"),
+        ASSOCIATION("association"),
+    }
+
     private fun hasFlowBetween(file: XmlFile, sourceId: String, targetId: String): Boolean {
         val root = file.rootTag ?: return false
         return collectFlows(root).any {
@@ -448,13 +591,15 @@ object BpmnDocumentEditor {
     private fun collectFlows(tag: XmlTag): List<XmlTag> {
         val result = mutableListOf<XmlTag>()
         for (child in tag.subTags) {
-            if (child.localName == "sequenceFlow" && BpmnNamespaces.isModelNamespace(child.namespace)) {
-                result += child
-            }
+            val isConnection = child.localName in CONNECTION_TAGS &&
+                BpmnNamespaces.isModelNamespace(child.namespace)
+            if (isConnection) result += child
             result += collectFlows(child)
         }
         return result
     }
+
+    private val CONNECTION_TAGS = setOf("sequenceFlow", "messageFlow", "association")
 
     private fun collectConnectedFlows(file: XmlFile, elementId: String): List<String> {
         val root = file.rootTag ?: return emptyList()

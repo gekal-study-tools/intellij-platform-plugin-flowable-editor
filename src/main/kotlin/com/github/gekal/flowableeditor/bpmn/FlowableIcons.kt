@@ -80,6 +80,12 @@ object FlowableIcons {
 
         BpmnElementKind.SUB_PROCESS -> "SubProcess"
 
+        BpmnElementKind.TEXT_ANNOTATION -> "TextAnnotation"
+
+        BpmnElementKind.POOL -> "Pool"
+
+        BpmnElementKind.LANE -> "Lane"
+
         BpmnElementKind.EXCLUSIVE_GATEWAY -> "ExclusiveGateway"
 
         BpmnElementKind.PARALLEL_GATEWAY -> "ParallelGateway"

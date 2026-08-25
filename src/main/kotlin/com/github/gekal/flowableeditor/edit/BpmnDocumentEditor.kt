@@ -11,6 +11,7 @@ import com.github.gekal.flowableeditor.edit.BpmnXmlSupport.qualify
 import com.github.gekal.flowableeditor.model.BpmnBounds
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnElementKind
+import com.github.gekal.flowableeditor.model.BpmnGeometry
 import com.github.gekal.flowableeditor.model.BpmnPoint
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.project.Project
@@ -53,6 +54,36 @@ object BpmnDocumentEditor {
             for ((id, box) in bounds) {
                 writeShapeBounds(root, id, box)
             }
+            rerouteConnected(root, diagram, bounds)
+        }
+    }
+
+    /**
+     * 動かした図形に繋がる線を引き直す。
+     *
+     * これをしないと線の端が元の位置に取り残され、図形との対応が読めなくなる。
+     * 途中の折れ点は手で置かれたものかもしれないので残し、端だけを付け直す。
+     */
+    private fun rerouteConnected(
+        root: XmlTag,
+        diagram: BpmnDiagram,
+        movedBounds: Map<String, BpmnBounds>,
+    ) {
+        // 動かした図形は新しい位置、それ以外は元の位置で考える
+        fun boundsOf(id: String?): BpmnBounds? {
+            if (id == null) return null
+            return movedBounds[id] ?: diagram.nodesById[id]?.bounds
+        }
+
+        for (edge in diagram.edges) {
+            if (edge.id.isEmpty()) continue
+            val touchesMoved = edge.sourceRef in movedBounds.keys || edge.targetRef in movedBounds.keys
+            if (!touchesMoved) continue
+
+            val source = boundsOf(edge.sourceRef) ?: continue
+            val target = boundsOf(edge.targetRef) ?: continue
+            val rerouted = BpmnGeometry.reroute(edge.waypoints, source, target)
+            if (rerouted.size >= 2) writeEdgeWaypoints(root, edge.id, rerouted)
         }
     }
 
@@ -336,19 +367,9 @@ object BpmnDocumentEditor {
 
     /** 新しい線の折れ点。図形の縁どうしを結ぶ。 */
     private fun connectionWaypoints(diagram: BpmnDiagram, sourceId: String, targetId: String): List<BpmnPoint> {
-        val source = diagram.nodesById[sourceId]?.bounds
-        val target = diagram.nodesById[targetId]?.bounds
-        if (source == null || target == null) return emptyList()
-
-        return if (target.x >= source.right) {
-            listOf(BpmnPoint(source.right, source.centerY), BpmnPoint(target.x, target.centerY))
-        } else if (target.right <= source.x) {
-            listOf(BpmnPoint(source.x, source.centerY), BpmnPoint(target.right, target.centerY))
-        } else if (target.y >= source.bottom) {
-            listOf(BpmnPoint(source.centerX, source.bottom), BpmnPoint(target.centerX, target.y))
-        } else {
-            listOf(BpmnPoint(source.centerX, source.y), BpmnPoint(target.centerX, target.bottom))
-        }
+        val source = diagram.nodesById[sourceId]?.bounds ?: return emptyList()
+        val target = diagram.nodesById[targetId]?.bounds ?: return emptyList()
+        return BpmnGeometry.reroute(emptyList(), source, target)
     }
 
     private fun reformat(project: Project, element: PsiElement) {

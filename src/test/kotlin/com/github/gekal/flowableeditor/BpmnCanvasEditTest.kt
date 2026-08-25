@@ -2,6 +2,7 @@ package com.github.gekal.flowableeditor
 
 import com.github.gekal.flowableeditor.edit.BpmnPaletteItem
 import com.github.gekal.flowableeditor.editor.BpmnCanvasEditListener
+import com.github.gekal.flowableeditor.editor.BpmnColors
 import com.github.gekal.flowableeditor.editor.BpmnDiagramCanvas
 import com.github.gekal.flowableeditor.editor.BpmnHandle
 import com.github.gekal.flowableeditor.editor.BpmnHandles
@@ -10,7 +11,6 @@ import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnElementKind
 import com.github.gekal.flowableeditor.model.BpmnNode
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.github.gekal.flowableeditor.editor.BpmnColors
 import com.intellij.ui.components.JBScrollPane
 import java.awt.Dimension
 import java.awt.Point

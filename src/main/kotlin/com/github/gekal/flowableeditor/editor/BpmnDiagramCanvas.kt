@@ -6,6 +6,7 @@ import com.github.gekal.flowableeditor.model.BpmnAutoLayout
 import com.github.gekal.flowableeditor.model.BpmnBounds
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnEdge
+import com.github.gekal.flowableeditor.model.BpmnGeometry
 import com.github.gekal.flowableeditor.model.BpmnNode
 import com.github.gekal.flowableeditor.model.BpmnPoint
 import com.intellij.ui.ClientProperty
@@ -26,6 +27,7 @@ import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
 import java.awt.geom.Ellipse2D
 import java.awt.geom.Line2D
+import java.awt.geom.Path2D
 import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
 import javax.swing.AbstractAction
@@ -633,6 +635,7 @@ class BpmnDiagramCanvas :
 
         // 移動 / 大きさ変更の下書き
         previewBounds?.let { bounds ->
+            paintReroutedEdges(g, bounds, stroke)
             g.color = BpmnColors.SELECTION
             g.stroke = stroke
             g.draw(bounds.toRectangle2D())
@@ -647,6 +650,37 @@ class BpmnDiagramCanvas :
         val bounds = previewBounds ?: (selection as? BpmnNode)?.bounds ?: return
         if (gesture is Gesture.Connect) return
         paintHandles(g, bounds)
+    }
+
+    /**
+     * ドラッグ中の図形に繋がる線を、動かした先に合わせて引き直して見せる。
+     *
+     * 実際の書き換えは指を離してからなので、ここで見せているのは下書き。
+     * これが無いと、図形だけが動いて線が取り残されたように見えてしまう。
+     */
+    private fun paintReroutedEdges(g: Graphics2D, bounds: BpmnBounds, stroke: BasicStroke) {
+        val movedId = when (val current = gesture) {
+            is Gesture.Move -> current.node.id
+            is Gesture.Resize -> current.node.id
+            else -> null
+        } ?: return
+        if (movedId.isEmpty()) return
+
+        g.color = BpmnColors.SELECTION
+        g.stroke = stroke
+        for (edge in diagram.edges) {
+            if (edge.sourceRef != movedId && edge.targetRef != movedId) continue
+            val source = if (edge.sourceRef == movedId) bounds else diagram.nodesById[edge.sourceRef]?.bounds
+            val target = if (edge.targetRef == movedId) bounds else diagram.nodesById[edge.targetRef]?.bounds
+            val points = BpmnGeometry.reroute(edge.waypoints, source, target)
+            if (points.size < 2) continue
+            g.draw(
+                Path2D.Double().apply {
+                    moveTo(points.first().x, points.first().y)
+                    points.drop(1).forEach { lineTo(it.x, it.y) }
+                },
+            )
+        }
     }
 
     private fun paintConnectionPreview(g: Graphics2D, gesture: Gesture.Connect, stroke: BasicStroke) {

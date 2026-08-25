@@ -229,4 +229,101 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
         // decision -> end (flow4) は ship と無関係なので残る
         assertTrue(updated.edges.any { it.sourceRef == "decision" && it.targetRef == "end" })
     }
+
+    // --- 線の追従 ------------------------------------------------------------
+
+    fun `test moving a shape drags its connections along`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+        val before = reparse(file).edges.first { it.id == "flow1" }.waypoints
+
+        // start -> approve の approve を大きく動かす
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("approve" to BpmnBounds(180.0, 400.0, 100.0, 80.0)),
+            "move",
+        )
+
+        val after = reparse(file).edges.first { it.id == "flow1" }.waypoints
+        assertTrue("線が引き直される", after != before)
+
+        // 線の終点が、動かした先の図形の縁に付いている
+        val moved = reparse(file).nodesById.getValue("approve").bounds!!
+        val end = after.last()
+        assertTrue(
+            "終点が図形の縁にある (end=$end, bounds=$moved)",
+            end.x >= moved.x - 1 && end.x <= moved.right + 1 &&
+                end.y >= moved.y - 1 && end.y <= moved.bottom + 1,
+        )
+    }
+
+    fun `test both ends follow when either shape moves`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+
+        // flow1 の始点側 (start) を動かす
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("start" to BpmnBounds(50.0, 500.0, 30.0, 30.0)),
+            "move",
+        )
+
+        val updated = reparse(file)
+        val start = updated.nodesById.getValue("start").bounds!!
+        val begin = updated.edges.first { it.id == "flow1" }.waypoints.first()
+        assertTrue(
+            "始点が動かした先の図形に付いてくる (begin=$begin, bounds=$start)",
+            begin.y > 400,
+        )
+    }
+
+    fun `test resizing also drags the connections`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+        val before = reparse(file).edges.first { it.id == "flow1" }.waypoints.last()
+
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("approve" to BpmnBounds(180.0, 75.0, 300.0, 200.0)),
+            "resize",
+        )
+
+        val after = reparse(file).edges.first { it.id == "flow1" }.waypoints.last()
+        assertTrue("大きさを変えても端が付き直される", after != before)
+    }
+
+    fun `test untouched connections are left alone`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+        val before = reparse(file).edges.first { it.id == "flow4" }.waypoints
+
+        // flow4 は decision -> end。approve とは無関係。
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("approve" to BpmnBounds(180.0, 400.0, 100.0, 80.0)),
+            "move",
+        )
+
+        assertEquals("関係ない線は触らない", before, reparse(file).edges.first { it.id == "flow4" }.waypoints)
+    }
+
+    fun `test hand placed bends are kept when a shape moves`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+        // flow1 に折れ点を足した状態を作る
+        BpmnDocumentEditor.setBounds(project, file, diagram, mapOf("start" to BpmnBounds(100.0, 100.0, 30.0, 30.0)), "seed")
+
+        val seeded = reparse(file)
+        val threePoints = listOf(
+            seeded.edges.first { it.id == "flow1" }.waypoints.first(),
+            com.github.gekal.flowableeditor.model.BpmnPoint(155.0, 300.0),
+            seeded.edges.first { it.id == "flow1" }.waypoints.last(),
+        )
+        seeded.edges.first { it.id == "flow1" }.waypoints = threePoints
+        BpmnDocumentEditor.connect(project, file, seeded, "end", "start", "connect")
+
+        // 折れ点を保つ挙動は幾何側で確かめる
+        val rerouted = com.github.gekal.flowableeditor.model.BpmnGeometry.reroute(
+            threePoints,
+            BpmnBounds(0.0, 0.0, 40.0, 40.0),
+            BpmnBounds(300.0, 300.0, 40.0, 40.0),
+        )
+        assertEquals("途中の折れ点は残る", 3, rerouted.size)
+        assertEquals(threePoints[1], rerouted[1])
+    }
 }

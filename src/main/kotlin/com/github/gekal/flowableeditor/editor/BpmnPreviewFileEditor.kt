@@ -14,6 +14,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.CaretEvent
@@ -31,6 +32,7 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.UserDataHolderBase
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiManager
@@ -172,6 +174,11 @@ class BpmnPreviewFileEditor(
     @TestOnly
     internal fun currentDiagram(): BpmnDiagram = canvas.getDiagram()
 
+    /** 図からの編集を受ける口。実際の経路をテストから通すために公開している。 */
+    @TestOnly
+    internal fun editListenerForTests(): BpmnCanvasEditListener =
+        requireNotNull(canvas.editListener) { "編集が有効になっていない" }
+
     private fun updateStatus() {
         val diagram = canvas.getDiagram()
         val zoomPercent = (canvas.zoom * 100).roundToInt()
@@ -253,10 +260,19 @@ class BpmnPreviewFileEditor(
             }
         }
 
-        /** 書き換えの共通部分。読み取り専用のファイルには手を出さない。 */
+        /**
+         * 書き換えの共通部分。読み取り専用のファイルには手を出さない。
+         *
+         * ここは EDT (マウスを離した直後) から呼ばれる。PSI を引くだけでも
+         * 読み取りアクセスが要るので read action で包む。
+         */
         private fun edit(action: (XmlFile, BpmnDiagram) -> Unit) {
             if (project.isDisposed || !file.isValid || !file.isWritable) return
-            val psiFile = PsiManager.getInstance(project).findFile(file) as? XmlFile ?: return
+
+            val psiFile = ApplicationManager.getApplication().runReadAction(
+                Computable { PsiManager.getInstance(project).findFile(file) as? XmlFile },
+            ) ?: return
+
             action(psiFile, canvas.getDiagram())
             // 書き換えの結果をすぐ図に反映する (通常の遅延を待たない)
             updateDiagram()

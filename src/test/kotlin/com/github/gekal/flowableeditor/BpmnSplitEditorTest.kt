@@ -3,8 +3,11 @@ package com.github.gekal.flowableeditor
 import com.github.gekal.flowableeditor.editor.BpmnPreviewFileEditor
 import com.github.gekal.flowableeditor.editor.BpmnSplitEditorProvider
 import com.github.gekal.flowableeditor.editor.BpmnTextEditorWithPreview
+import com.github.gekal.flowableeditor.model.BpmnBounds
+import com.github.gekal.flowableeditor.model.BpmnModelParser
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.util.Disposer
+import com.intellij.psi.xml.XmlFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
@@ -91,5 +94,43 @@ class BpmnSplitEditorTest : BasePlatformTestCase() {
         val file = myFixture.configureByText("beans.xml", "<beans><bean id=\"a\"/></beans>")
 
         assertFalse(BpmnSplitEditorProvider().accept(project, file.virtualFile))
+    }
+
+    // --- 図からの編集 --------------------------------------------------------
+
+    fun `test editing from the diagram writes back without a threading error`() {
+        // 実際の経路は EDT から呼ばれる。PSI を引くだけでも読み取りアクセスが要るので、
+        // ここを通しておかないと実行時にしか気付けない。
+        val (_, preview) = openPreview("orderProcessWithDi.bpmn20.xml")
+        preview.refreshNow()
+        waitForDiagram(preview)
+
+        preview.editListenerForTests().onBoundsChanged(
+            "approve",
+            BpmnBounds(400.0, 350.0, 100.0, 80.0),
+            isResize = false,
+        )
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+
+        val moved = BpmnModelParser.parse(myFixture.file as XmlFile).nodesById.getValue("approve").bounds!!
+        assertEquals(400.0, moved.x)
+        assertEquals(350.0, moved.y)
+    }
+
+    fun `test editing from the diagram also drags the connections`() {
+        val (_, preview) = openPreview("orderProcessWithDi.bpmn20.xml")
+        preview.refreshNow()
+        waitForDiagram(preview)
+        val before = BpmnModelParser.parse(myFixture.file as XmlFile).edges.first { it.id == "flow1" }.waypoints
+
+        preview.editListenerForTests().onBoundsChanged(
+            "approve",
+            BpmnBounds(400.0, 350.0, 100.0, 80.0),
+            isResize = false,
+        )
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+
+        val after = BpmnModelParser.parse(myFixture.file as XmlFile).edges.first { it.id == "flow1" }.waypoints
+        assertTrue("線が図形に付いてくる", after != before)
     }
 }

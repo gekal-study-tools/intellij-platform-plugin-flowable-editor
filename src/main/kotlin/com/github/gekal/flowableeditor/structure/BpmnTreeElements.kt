@@ -103,8 +103,16 @@ class BpmnTagTreeElement(tag: XmlTag) : BpmnTreeElement<XmlTag>(tag) {
     override fun getIcon(unused: Boolean): Icon {
         val tag = element ?: return FlowableIcons.BpmnFile
         if (tag.localName == "process" || tag.localName == "collaboration") return FlowableIcons.Process
-        return FlowableIcons.forKind(BpmnElementKind.fromTagName(tag.localName))
+        // パレットと同じ絵にして、木と図とで同じ要素が同じに見えるようにする
+        return FlowableIcons.forElement(BpmnElementKind.fromTagName(tag.localName), eventDefinitionOf(tag))
     }
+
+    /** `timerEventDefinition` なら "timer"。イベントの絵を選ぶのに使う。 */
+    private fun eventDefinitionOf(tag: XmlTag): String? =
+        tag.subTags.firstOrNull { it.localName.endsWith("EventDefinition") }
+            ?.localName
+            ?.removeSuffix("EventDefinition")
+            ?.takeIf { it.isNotEmpty() }
 
     private fun isStructural(tag: XmlTag): Boolean =
         BpmnElementKind.isFlowNodeTag(tag.localName) ||

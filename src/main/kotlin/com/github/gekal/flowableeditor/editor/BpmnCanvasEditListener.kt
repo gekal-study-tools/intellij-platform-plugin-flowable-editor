@@ -19,8 +19,13 @@ interface BpmnCanvasEditListener {
     /** 図形から図形へ線を引いた。 */
     fun onConnect(sourceId: String, targetId: String)
 
-    /** パレットの要素を置いた。[containerId] は落とした先のサブプロセスなど。 */
-    fun onCreate(item: BpmnPaletteItem, bounds: BpmnBounds, containerId: String?)
+    /**
+     * パレットの要素を置いた。
+     *
+     * [containerId] は落とした先のサブプロセスなど。
+     * [attachToId] は境界イベントの貼り付け先。
+     */
+    fun onCreate(item: BpmnPaletteItem, bounds: BpmnBounds, containerId: String?, attachToId: String? = null)
 
     /** 要素を消した。 */
     fun onDelete(elementIds: List<String>)

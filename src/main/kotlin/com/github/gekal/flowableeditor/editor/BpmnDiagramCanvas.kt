@@ -4,6 +4,7 @@ import com.github.gekal.flowableeditor.FlowableBundle
 import com.github.gekal.flowableeditor.edit.BpmnPaletteItem
 import com.github.gekal.flowableeditor.model.BpmnAutoLayout
 import com.github.gekal.flowableeditor.model.BpmnBounds
+import com.github.gekal.flowableeditor.model.BpmnCategory
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnEdge
 import com.github.gekal.flowableeditor.model.BpmnGeometry
@@ -235,15 +236,39 @@ class BpmnDiagramCanvas :
 
         val (x, y) = viewToModel(point)
         val size = BpmnAutoLayout.defaultSize(item.kind)
+        val under = diagram.nodeAt(x, y)
+
+        if (item.attachesToActivity) {
+            // 境界イベントは貼り付け先が要る。何も無いところに置いても意味がないので、
+            // 道具を構えたまま何もしない。もう一度アクティビティの上を狙える。
+            val host = under?.takeIf { it.id.isNotEmpty() && canHostBoundaryEvent(it) } ?: return true
+            val hostBounds = host.bounds ?: return true
+            // 押した位置に近い下辺へ寄せる
+            val centerX = x.coerceIn(hostBounds.x, hostBounds.right)
+            val bounds = BpmnBounds(
+                centerX - size.first / 2,
+                hostBounds.bottom - size.second / 2,
+                size.first,
+                size.second,
+            )
+            armedPaletteItem = null
+            listener.onCreate(item, bounds, host.id, attachToId = host.id)
+            return true
+        }
+
         // 押した位置が図形の中心に来るようにする
         val bounds = BpmnBounds(x - size.first / 2, y - size.second / 2, size.first, size.second)
         // 落とした先がサブプロセスなら、その中に入れる
-        val container = diagram.nodeAt(x, y)?.takeIf { it.kind.isSubProcess }?.id
+        val container = under?.takeIf { it.kind.isSubProcess }?.id
 
         armedPaletteItem = null
         listener.onCreate(item, bounds, container)
         return true
     }
+
+    /** 境界イベントを貼り付けられる相手か。 */
+    private fun canHostBoundaryEvent(node: BpmnNode): Boolean =
+        node.kind.category == BpmnCategory.ACTIVITY || node.kind.isSubProcess
 
     /** 押した位置から編集操作を始められるなら始める。 */
     private fun beginEditGesture(e: MouseEvent): Boolean {

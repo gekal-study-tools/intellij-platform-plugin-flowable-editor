@@ -33,11 +33,18 @@ class BpmnCanvasEditTest : BasePlatformTestCase() {
     private lateinit var scrollPane: JBScrollPane
     private lateinit var recorded: Recorder
 
+    private data class Created(
+        val item: BpmnPaletteItem,
+        val bounds: BpmnBounds,
+        val containerId: String?,
+        val attachToId: String?,
+    )
+
     /** 届いた要求を記録するだけの受け手。 */
     private class Recorder : BpmnCanvasEditListener {
         val bounds = mutableListOf<Triple<String, BpmnBounds, Boolean>>()
         val connections = mutableListOf<Pair<String, String>>()
-        val created = mutableListOf<Triple<BpmnPaletteItem, BpmnBounds, String?>>()
+        val created = mutableListOf<Created>()
         val deleted = mutableListOf<List<String>>()
         val renamed = mutableListOf<Pair<String, String>>()
 
@@ -49,8 +56,13 @@ class BpmnCanvasEditTest : BasePlatformTestCase() {
             connections += sourceId to targetId
         }
 
-        override fun onCreate(item: BpmnPaletteItem, bounds: BpmnBounds, containerId: String?) {
-            created += Triple(item, bounds, containerId)
+        override fun onCreate(
+            item: BpmnPaletteItem,
+            bounds: BpmnBounds,
+            containerId: String?,
+            attachToId: String?,
+        ) {
+            created += Created(item, bounds, containerId, attachToId)
         }
 
         override fun onDelete(elementIds: List<String>) {
@@ -184,13 +196,39 @@ class BpmnCanvasEditTest : BasePlatformTestCase() {
 
         canvas.dispatchEvent(mouse(MouseEvent.MOUSE_PRESSED, view(250.0, 150.0)))
 
-        val (item, bounds, container) = recorded.created.single()
-        assertEquals(BpmnPaletteItem.SERVICE_TASK, item)
-        assertNull("何も無いところなのでコンテナ指定は無い", container)
+        val created = recorded.created.single()
+        assertEquals(BpmnPaletteItem.SERVICE_TASK, created.item)
+        assertNull("何も無いところなのでコンテナ指定は無い", created.containerId)
         // 押した位置が図形の中心に来る
-        assertEquals(250.0, bounds.centerX, 1.0)
-        assertEquals(150.0, bounds.centerY, 1.0)
+        assertEquals(250.0, created.bounds.centerX, 1.0)
+        assertEquals(150.0, created.bounds.centerY, 1.0)
         assertNull("置いたら道具は外れる", canvas.armedPaletteItem)
+    }
+
+    fun `test a boundary event lands on the activity it is dropped on`() {
+        canvas.armedPaletteItem = BpmnPaletteItem.BOUNDARY_TIMER_EVENT
+
+        // first は (0,0)-(100,80)。その上を押す。
+        canvas.dispatchEvent(mouse(MouseEvent.MOUSE_PRESSED, view(60.0, 40.0)))
+
+        val created = recorded.created.single()
+        assertEquals("first", created.attachToId)
+        // 貼り付け先の下辺に寄る
+        assertEquals(80.0, created.bounds.centerY, 1.0)
+        assertNull("置いたら道具は外れる", canvas.armedPaletteItem)
+    }
+
+    fun `test a boundary event dropped on empty space is not placed`() {
+        canvas.armedPaletteItem = BpmnPaletteItem.BOUNDARY_TIMER_EVENT
+
+        canvas.dispatchEvent(mouse(MouseEvent.MOUSE_PRESSED, view(600.0, 500.0)))
+
+        assertTrue("貼り付け先が無いので置かない", recorded.created.isEmpty())
+        assertEquals(
+            "道具は構えたままで、もう一度狙える",
+            BpmnPaletteItem.BOUNDARY_TIMER_EVENT,
+            canvas.armedPaletteItem,
+        )
     }
 
     // --- 削除 ----------------------------------------------------------------

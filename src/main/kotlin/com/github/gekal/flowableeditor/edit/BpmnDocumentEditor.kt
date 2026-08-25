@@ -115,17 +115,30 @@ object BpmnDocumentEditor {
         bounds: BpmnBounds,
         containerId: String?,
         commandName: String,
+        attachToId: String? = null,
     ): String? {
+        // 境界イベントは貼り付け先が要る。無ければ何もしない。
+        if (item.attachesToActivity && attachToId == null) return null
+
         var created: String? = null
         runCommand(project, file, commandName) {
             val root = file.rootTag ?: return@runCommand
-            val container = resolveContainer(file, root, containerId) ?: return@runCommand
+            // 境界イベントは貼り付け先の中ではなく、その隣に置く
+            val host = attachToId?.let { findModelElement(file, it) }
+            val container = if (item.attachesToActivity) {
+                host?.parentTag ?: return@runCommand
+            } else {
+                resolveContainer(file, root, containerId) ?: return@runCommand
+            }
 
             val id = BpmnIdGenerator.generate(file, item.tagName)
             val body = item.eventDefinition?.let { "<${childPrefix(container)}$it/>" }
             val element = container.createChildTag(item.tagName, container.namespace, body, false)
             val added = container.addSubTag(element, false)
             added.setAttribute("id", id)
+            if (item.attachesToActivity && attachToId != null) {
+                added.setAttribute("attachedToRef", attachToId)
+            }
 
             ensureDiagramInterchange(root, diagram)
             writeShapeBounds(root, id, bounds)

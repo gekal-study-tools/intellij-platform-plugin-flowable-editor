@@ -326,4 +326,54 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
         assertEquals("途中の折れ点は残る", 3, rerouted.size)
         assertEquals(threePoints[1], rerouted[1])
     }
+
+    // --- 境界イベント --------------------------------------------------------
+
+    fun `test a boundary event is attached to the activity it is dropped on`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+
+        val id = BpmnDocumentEditor.createElement(
+            project, file, diagram, BpmnPaletteItem.BOUNDARY_TIMER_EVENT,
+            BpmnBounds(230.0, 140.0, 36.0, 36.0),
+            containerId = "approve",
+            commandName = "add",
+            attachToId = "approve",
+        )
+
+        assertNotNull(id)
+        val added = reparse(file).nodesById.getValue(id!!)
+        assertEquals("boundaryEvent", added.tagName)
+        assertEquals("貼り付け先が記録される", "approve", added.attachedToRef)
+        assertEquals("timer", added.eventDefinition)
+        // 境界イベントは貼り付け先の中ではなく隣に置かれる
+        assertEquals("orderProcess", added.parentId)
+    }
+
+    fun `test a boundary event is not created without a host`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+        val before = reparse(file).nodes.size
+
+        val id = BpmnDocumentEditor.createElement(
+            project, file, diagram, BpmnPaletteItem.BOUNDARY_TIMER_EVENT,
+            BpmnBounds(600.0, 400.0, 36.0, 36.0),
+            containerId = null, commandName = "add", attachToId = null,
+        )
+
+        assertNull(id)
+        assertEquals(before, reparse(file).nodes.size)
+    }
+
+    fun `test deleting the host also removes the boundary event that was added`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+        val id = BpmnDocumentEditor.createElement(
+            project, file, diagram, BpmnPaletteItem.BOUNDARY_TIMER_EVENT,
+            BpmnBounds(230.0, 140.0, 36.0, 36.0), "approve", "add", attachToId = "approve",
+        )
+
+        BpmnDocumentEditor.delete(project, file, listOf("approve"), "delete")
+
+        val updated = reparse(file)
+        assertNull(updated.nodesById["approve"])
+        assertNull("貼り付いていた境界イベントも消える", updated.nodesById[id!!])
+    }
 }

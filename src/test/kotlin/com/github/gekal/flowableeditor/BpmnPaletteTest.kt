@@ -3,6 +3,7 @@ package com.github.gekal.flowableeditor
 import com.github.gekal.flowableeditor.bpmn.FlowableIcons
 import com.github.gekal.flowableeditor.edit.BpmnPaletteItem
 import com.github.gekal.flowableeditor.editor.BpmnPalette
+import com.github.gekal.flowableeditor.model.BpmnElementKind
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.awt.image.BufferedImage
 import java.io.File
@@ -115,5 +116,28 @@ class BpmnPaletteTest : BasePlatformTestCase() {
             }
         }
         assertTrue("アイコンが描かれている (見つかった画素: $drawn)", drawn > 400)
+    }
+
+    // --- 構造ビューとの一貫性 ------------------------------------------------
+
+    fun `test the structure view uses the same icon as the palette`() {
+        // 木と図で同じ要素が違う絵に見えると、対応を取るのに手間がかかる
+        for (item in BpmnPaletteItem.entries) {
+            val fromPalette = FlowableIcons.forPaletteItem(item.iconName)
+            val fromKind = FlowableIcons.forElement(
+                item.kind,
+                item.eventDefinition?.removeSuffix("EventDefinition"),
+            )
+            assertSame("${item.label} の絵が揃っていない", fromPalette, fromKind)
+        }
+    }
+
+    fun `test kinds without a drawn icon fall back to their category`() {
+        // 描き起こしていない種類でも、分類ごとの絵が返る
+        val annotation = FlowableIcons.forElement(BpmnElementKind.TEXT_ANNOTATION)
+        val manual = FlowableIcons.forElement(BpmnElementKind.MANUAL_TASK)
+
+        assertNotNull(annotation)
+        assertSame("分類の絵に落ちる", FlowableIcons.Task, manual)
     }
 }

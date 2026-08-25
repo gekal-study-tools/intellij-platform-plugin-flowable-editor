@@ -232,12 +232,18 @@ class BpmnPreviewFileEditor(
             }
         }
 
-        override fun onCreate(item: BpmnPaletteItem, bounds: BpmnBounds, containerId: String?) {
+        override fun onCreate(
+            item: BpmnPaletteItem,
+            bounds: BpmnBounds,
+            containerId: String?,
+            attachToId: String?,
+        ) {
             palette.clearSelection()
             edit { file, diagram ->
                 BpmnDocumentEditor.createElement(
                     project, file, diagram, item, bounds, containerId,
                     FlowableBundle.message("edit.command.create"),
+                    attachToId = attachToId,
                 )
             }
         }

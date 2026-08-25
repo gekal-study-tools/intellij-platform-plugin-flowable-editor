@@ -16,6 +16,11 @@ enum class BpmnPaletteItem(
     val iconName: String,
     /** `timerEventDefinition` のような子要素。不要なら null。 */
     val eventDefinition: String? = null,
+    /**
+     * アクティビティの縁に貼り付ける要素か。
+     * 境界イベントは単独では置けず、貼り付け先が要る。
+     */
+    val attachesToActivity: Boolean = false,
 ) {
     START_EVENT(BpmnElementKind.START_EVENT, "Start event", BpmnPaletteGroup.EVENTS, "StartEvent"),
     END_EVENT(BpmnElementKind.END_EVENT, "End event", BpmnPaletteGroup.EVENTS, "EndEvent"),
@@ -26,10 +31,33 @@ enum class BpmnPaletteItem(
         "TimerEvent",
         eventDefinition = "timerEventDefinition",
     ),
+    MESSAGE_CATCH_EVENT(
+        BpmnElementKind.INTERMEDIATE_CATCH_EVENT,
+        "Message event",
+        BpmnPaletteGroup.EVENTS,
+        "MessageEvent",
+        eventDefinition = "messageEventDefinition",
+    ),
+    BOUNDARY_TIMER_EVENT(
+        BpmnElementKind.BOUNDARY_EVENT,
+        "Boundary timer (drop on an activity)",
+        BpmnPaletteGroup.EVENTS,
+        "BoundaryEvent",
+        eventDefinition = "timerEventDefinition",
+        attachesToActivity = true,
+    ),
 
     USER_TASK(BpmnElementKind.USER_TASK, "User task", BpmnPaletteGroup.ACTIVITIES, "UserTask"),
     SERVICE_TASK(BpmnElementKind.SERVICE_TASK, "Service task", BpmnPaletteGroup.ACTIVITIES, "ServiceTask"),
     SCRIPT_TASK(BpmnElementKind.SCRIPT_TASK, "Script task", BpmnPaletteGroup.ACTIVITIES, "ScriptTask"),
+    BUSINESS_RULE_TASK(
+        BpmnElementKind.BUSINESS_RULE_TASK,
+        "Business rule task",
+        BpmnPaletteGroup.ACTIVITIES,
+        "BusinessRuleTask",
+    ),
+    RECEIVE_TASK(BpmnElementKind.RECEIVE_TASK, "Receive task", BpmnPaletteGroup.ACTIVITIES, "ReceiveTask"),
+    CALL_ACTIVITY(BpmnElementKind.CALL_ACTIVITY, "Call activity", BpmnPaletteGroup.ACTIVITIES, "CallActivity"),
     SUB_PROCESS(BpmnElementKind.SUB_PROCESS, "Sub process", BpmnPaletteGroup.ACTIVITIES, "SubProcess"),
 
     EXCLUSIVE_GATEWAY(
@@ -43,6 +71,18 @@ enum class BpmnPaletteItem(
         "Parallel gateway",
         BpmnPaletteGroup.GATEWAYS,
         "ParallelGateway",
+    ),
+    INCLUSIVE_GATEWAY(
+        BpmnElementKind.INCLUSIVE_GATEWAY,
+        "Inclusive gateway",
+        BpmnPaletteGroup.GATEWAYS,
+        "InclusiveGateway",
+    ),
+    EVENT_BASED_GATEWAY(
+        BpmnElementKind.EVENT_BASED_GATEWAY,
+        "Event based gateway",
+        BpmnPaletteGroup.GATEWAYS,
+        "EventGateway",
     ),
     ;
 

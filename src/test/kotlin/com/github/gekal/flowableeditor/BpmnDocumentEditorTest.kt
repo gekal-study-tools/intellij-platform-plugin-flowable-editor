@@ -2,6 +2,7 @@ package com.github.gekal.flowableeditor
 
 import com.github.gekal.flowableeditor.edit.BpmnDocumentEditor
 import com.github.gekal.flowableeditor.edit.BpmnPaletteItem
+import com.github.gekal.flowableeditor.model.BpmnAutoLayout
 import com.github.gekal.flowableeditor.model.BpmnBounds
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnElementKind
@@ -20,7 +21,7 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
     override fun getTestDataPath(): String = "src/test/testData"
 
     private fun open(fileName: String): Pair<XmlFile, BpmnDiagram> {
-        myFixture.configureByFile(fileName)
+        myFixture.configureFromTestData(fileName)
         val file = myFixture.file as XmlFile
         return file to BpmnModelParser.parse(file)
     }
@@ -455,18 +456,121 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
         assertEquals("Director", reparse(file).nodesById.getValue("lane2").name)
     }
 
-    fun `test moving a pool leaves the elements inside it alone`() {
+    fun `test moving a pool carries everything inside it`() {
         val (file, diagram) = open("collaborationWithLanes.bpmn20.xml")
         val before = reparse(file).nodesById.getValue("start").bounds!!
 
+        // プールを下へ 300 動かす
         BpmnDocumentEditor.setBounds(
             project, file, diagram,
             mapOf("pool1" to BpmnBounds(100.0, 400.0, 600.0, 250.0)),
             "move",
         )
 
-        // プールを動かしても中の要素は動かない。まとめて動かす仕組みはまだ無い。
-        assertEquals(before, reparse(file).nodesById.getValue("start").bounds)
-        assertEquals(400.0, reparse(file).nodesById.getValue("pool1").bounds!!.y)
+        val updated = reparse(file)
+        assertEquals(400.0, updated.nodesById.getValue("pool1").bounds!!.y)
+        assertEquals("中の要素も同じだけ動く", before.y + 300.0, updated.nodesById.getValue("start").bounds!!.y)
+        assertEquals("横はそのまま", before.x, updated.nodesById.getValue("start").bounds!!.x)
+        assertEquals("レーンも付いてくる", 400.0, updated.nodesById.getValue("lane1").bounds!!.y)
+    }
+
+    fun `test moving a lane carries only what is in that lane`() {
+        val (file, diagram) = open("collaborationWithLanes.bpmn20.xml")
+        val poolBefore = reparse(file).nodesById.getValue("pool1").bounds!!
+
+        // lane1 (上の帯) を右へ 50 動かす。start は lane1 の中にある。
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("lane1" to BpmnBounds(180.0, 100.0, 570.0, 125.0)),
+            "move",
+        )
+
+        val updated = reparse(file)
+        assertEquals("レーンの中の要素は付いてくる", 230.0, updated.nodesById.getValue("start").bounds!!.x)
+        assertEquals("プールは動かない", poolBefore, updated.nodesById.getValue("pool1").bounds)
+    }
+
+    fun `test resizing a container leaves its contents where they are`() {
+        val (file, diagram) = open("collaborationWithLanes.bpmn20.xml")
+        val before = reparse(file).nodesById.getValue("start").bounds!!
+
+        BpmnDocumentEditor.setBounds(
+            project, file, diagram,
+            mapOf("pool1" to BpmnBounds(100.0, 100.0, 800.0, 320.0)),
+            "resize",
+        )
+
+        assertEquals("大きさを変えただけなら中身は動かない", before, reparse(file).nodesById.getValue("start").bounds)
+    }
+
+    fun `test moving an activity carries its boundary event`() {
+        val (file, diagram) = open("orderProcessWithDi.bpmn20.xml")
+        val id = BpmnDocumentEditor.createElement(
+            project, file, diagram, BpmnPaletteItem.BOUNDARY_TIMER_EVENT,
+            BpmnBounds(230.0, 137.0, 36.0, 36.0), "approve", "add", attachToId = "approve",
+        )
+        val before = reparse(file).nodesById.getValue(id!!).bounds!!
+
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("approve" to BpmnBounds(180.0, 375.0, 100.0, 80.0)),
+            "move",
+        )
+
+        val moved = reparse(file).nodesById.getValue(id).bounds!!
+        assertEquals("境界イベントも同じだけ動く", before.y + 300.0, moved.y)
+    }
+
+    // --- 自動整列 ------------------------------------------------------------
+
+    fun `test rearranging lays the diagram out from left to right`() {
+        val (file, _) = open("orderProcessWithDi.bpmn20.xml")
+        // わざと崩す
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("approve" to BpmnBounds(20.0, 600.0, 100.0, 80.0)),
+            "move",
+        )
+
+        val arranged = reparse(file)
+        BpmnAutoLayout.relayout(arranged)
+        BpmnDocumentEditor.applyLayout(project, file, arranged, "layout")
+
+        val updated = reparse(file)
+        val start = updated.nodesById.getValue("start").bounds!!
+        val approve = updated.nodesById.getValue("approve").bounds!!
+        val end = updated.nodesById.getValue("end").bounds!!
+        assertTrue("流れの順に左から並ぶ", start.x < approve.x)
+        assertTrue(approve.x < end.x)
+    }
+
+    fun `test rearranging redraws the connections`() {
+        val (file, _) = open("orderProcessWithDi.bpmn20.xml")
+        val arranged = reparse(file)
+        BpmnAutoLayout.relayout(arranged)
+        BpmnDocumentEditor.applyLayout(project, file, arranged, "layout")
+
+        val updated = reparse(file)
+        for (edge in updated.edges) {
+            assertTrue("${edge.id} に折れ点がある", edge.waypoints.size >= 2)
+        }
+        // 端が図形の縁の近くに来ている
+        val flow = updated.edges.first { it.id == "flow1" }
+        val startBounds = updated.nodesById.getValue("start").bounds!!
+        assertTrue(
+            "始点が図形に接している",
+            flow.waypoints.first().x >= startBounds.x - 1 &&
+                flow.waypoints.first().x <= startBounds.right + 1,
+        )
+    }
+
+    fun `test rearranging is refused when the diagram has pools`() {
+        val (_, diagram) = open("collaborationWithLanes.bpmn20.xml")
+
+        assertFalse("プールがある図は整列しない", BpmnAutoLayout.canRelayout(diagram))
+
+        val before = diagram.nodesById.getValue("start").bounds
+        BpmnAutoLayout.relayout(diagram)
+        assertEquals("何も動かさない", before, diagram.nodesById.getValue("start").bounds)
     }
 }

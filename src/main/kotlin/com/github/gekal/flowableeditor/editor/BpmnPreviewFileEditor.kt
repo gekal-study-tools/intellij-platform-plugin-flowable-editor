@@ -3,6 +3,7 @@ package com.github.gekal.flowableeditor.editor
 import com.github.gekal.flowableeditor.FlowableBundle
 import com.github.gekal.flowableeditor.edit.BpmnDocumentEditor
 import com.github.gekal.flowableeditor.edit.BpmnPaletteItem
+import com.github.gekal.flowableeditor.model.BpmnAutoLayout
 import com.github.gekal.flowableeditor.model.BpmnBounds
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnEdge
@@ -338,6 +339,8 @@ class BpmnPreviewFileEditor(
             action("action.zoom.actual", AllIcons.General.ActualZoom) { canvas.resetZoom() },
         )
         group.addSeparator()
+        group.add(action("action.layout", AllIcons.Graph.Layout) { arrangeDiagram() })
+        group.addSeparator()
         group.add(action("action.export.png", AllIcons.Actions.Download) { exportPng() })
         group.add(action("action.refresh", AllIcons.Actions.Refresh) { updateDiagram() })
 
@@ -352,6 +355,54 @@ class BpmnPreviewFileEditor(
 
             override fun actionPerformed(e: AnActionEvent) = handler()
         }
+
+    /**
+     * 図を配置し直す。
+     *
+     * いまの座標を捨てて左から右へ並べ直し、線も引き直す。
+     * 書き込めないファイルや、配置し直せない図では何もしない。
+     */
+    private fun arrangeDiagram() {
+        if (!file.isWritable) return
+        val current = canvas.getDiagram()
+        if (current.isEmpty) {
+            Messages.showInfoMessage(
+                project,
+                FlowableBundle.message("layout.unsupported.empty"),
+                FlowableBundle.message("layout.unsupported.title"),
+            )
+            return
+        }
+        if (!BpmnAutoLayout.canRelayout(current)) {
+            Messages.showInfoMessage(
+                project,
+                FlowableBundle.message("layout.unsupported.pools"),
+                FlowableBundle.message("layout.unsupported.title"),
+            )
+            return
+        }
+
+        val psiFile = ApplicationManager.getApplication().runReadAction(
+            Computable { PsiManager.getInstance(project).findFile(file) as? XmlFile },
+        ) ?: return
+
+        // 手を加える前の状態から組み直す。画面の図をそのまま並べ替えると、
+        // ドラッグ中の下書きなど中途半端な状態を書き戻しかねない。
+        val arranged = ApplicationManager.getApplication().runReadAction(
+            Computable { BpmnModelParser.parse(psiFile) },
+        )
+        BpmnAutoLayout.relayout(arranged)
+
+        BpmnDocumentEditor.applyLayout(
+            project,
+            psiFile,
+            arranged,
+            FlowableBundle.message("edit.command.layout"),
+        )
+        updateDiagram()
+        // 並べ直すと図の大きさが変わるので、全体が見えるところへ戻す
+        canvas.fitToWindow()
+    }
 
     private fun exportPng() {
         val image = canvas.renderToImage(EXPORT_SCALE)

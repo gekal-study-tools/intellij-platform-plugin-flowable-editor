@@ -12,6 +12,7 @@ import com.github.gekal.flowableeditor.model.BpmnBounds
 import com.github.gekal.flowableeditor.model.BpmnDiagram
 import com.github.gekal.flowableeditor.model.BpmnElementKind
 import com.github.gekal.flowableeditor.model.BpmnGeometry
+import com.github.gekal.flowableeditor.model.BpmnNode
 import com.github.gekal.flowableeditor.model.BpmnPoint
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.project.Project
@@ -48,15 +49,67 @@ object BpmnDocumentEditor {
         commandName: String,
     ) {
         if (bounds.isEmpty()) return
+        val expanded = withCarriedElements(diagram, bounds)
         runCommand(project, file, commandName) {
             val root = file.rootTag ?: return@runCommand
             ensureDiagramInterchange(root, diagram)
-            for ((id, box) in bounds) {
+            for ((id, box) in expanded) {
                 writeShapeBounds(root, id, box)
             }
-            rerouteConnected(root, diagram, bounds)
+            rerouteConnected(root, diagram, expanded)
         }
     }
+
+    /**
+     * 一緒に動かすものを足す。
+     *
+     * プールやレーン、サブプロセスを動かしたときに中身が置き去りになると、
+     * 図形と区画の対応が壊れる。アクティビティに張り付いた境界イベントも同じ。
+     * 大きさを変えただけのときは中身を動かさない。
+     */
+    private fun withCarriedElements(
+        diagram: BpmnDiagram,
+        bounds: Map<String, BpmnBounds>,
+    ): Map<String, BpmnBounds> {
+        if (bounds.size != 1) return bounds
+        val (movedId, target) = bounds.entries.first()
+        val original = diagram.nodesById[movedId]?.bounds ?: return bounds
+
+        val dx = target.x - original.x
+        val dy = target.y - original.y
+        if (dx == 0.0 && dy == 0.0) return bounds
+        // 大きさが変わっているなら移動ではない
+        if (target.width != original.width || target.height != original.height) return bounds
+
+        val moved = diagram.nodesById[movedId] ?: return bounds
+        val result = LinkedHashMap(bounds)
+
+        for (other in diagram.nodes) {
+            if (other.id.isEmpty() || other.id == movedId) continue
+            val otherBounds = other.bounds ?: continue
+
+            val carried = when {
+                // 区画の中にすっぽり入っているもの
+                isContainer(moved) && encloses(original, otherBounds) -> true
+
+                // 張り付いた境界イベント
+                other.attachedToRef == movedId -> true
+
+                else -> false
+            }
+            if (carried) result[other.id] = otherBounds.translate(dx, dy)
+        }
+        return result
+    }
+
+    private fun isContainer(node: BpmnNode): Boolean = node.kind.isPoolOrLane || node.kind.isSubProcess
+
+    /** [outer] が [inner] を包んでいるか。縁ぴったりも含める。 */
+    private fun encloses(outer: BpmnBounds, inner: BpmnBounds): Boolean =
+        inner.x >= outer.x - 0.5 &&
+            inner.y >= outer.y - 0.5 &&
+            inner.right <= outer.right + 0.5 &&
+            inner.bottom <= outer.bottom + 0.5
 
     /**
      * 動かした図形に繋がる線を引き直す。
@@ -111,6 +164,28 @@ object BpmnDocumentEditor {
             val target = diagram.nodesById[edge.targetRef]?.bounds
             val docked = BpmnGeometry.reroute(waypoints, source, target)
             writeEdgeWaypoints(root, edgeId, docked)
+        }
+    }
+
+    /**
+     * 配置し直した結果をまとめて書き戻す。
+     *
+     * 図形の座標と線の折れ点を全部入れ替える。1 つの取り消し単位にまとめてあるので、
+     * 気に入らなければ一度の取り消しで元に戻せる。
+     */
+    fun applyLayout(project: Project, file: XmlFile, diagram: BpmnDiagram, commandName: String) {
+        runCommand(project, file, commandName) {
+            val root = file.rootTag ?: return@runCommand
+            ensureDiagramInterchange(root, diagram)
+            for (node in diagram.nodes) {
+                val bounds = node.bounds ?: continue
+                if (node.id.isEmpty()) continue
+                writeShapeBounds(root, node.id, bounds)
+            }
+            for (edge in diagram.edges) {
+                if (edge.id.isEmpty() || edge.waypoints.size < 2) continue
+                writeEdgeWaypoints(root, edge.id, edge.waypoints)
+            }
         }
     }
 

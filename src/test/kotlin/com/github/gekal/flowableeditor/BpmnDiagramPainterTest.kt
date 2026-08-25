@@ -24,7 +24,7 @@ class BpmnDiagramPainterTest : BasePlatformTestCase() {
     override fun getTestDataPath(): String = "src/test/testData"
 
     private fun render(fileName: String): BufferedImage {
-        myFixture.configureByFile(fileName)
+        myFixture.configureFromTestData(fileName)
         val diagram = BpmnModelParser.parse(myFixture.file as XmlFile)
         assertFalse("$fileName should produce a diagram", diagram.isEmpty)
         return render(diagram, fileName.substringBefore('.'))

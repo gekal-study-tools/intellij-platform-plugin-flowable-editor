@@ -38,6 +38,27 @@ object BpmnAutoLayout {
         else -> 100.0 to 80.0
     }
 
+    /**
+     * いまの座標を捨てて配置し直す。
+     *
+     * 手で並べた図を整えるための入口。線の折れ点も作り直すので、
+     * 図形の位置に合わない折れ点が残ることはない。
+     *
+     * プールやレーンがある図では何もしない ([canRelayout] を先に見ること)。
+     * この配置はプールの区画を理解しないため、動かすと要素が区画からはみ出す。
+     */
+    fun relayout(diagram: BpmnDiagram) {
+        if (!canRelayout(diagram)) return
+        diagram.nodes.forEach { it.bounds = null }
+        diagram.edges.forEach { it.waypoints = emptyList() }
+        layout(diagram)
+        BpmnEdgeRouter.routeMissingEdges(diagram)
+    }
+
+    /** 配置し直せる図か。プールやレーンがあると区画を壊すので触らない。 */
+    fun canRelayout(diagram: BpmnDiagram): Boolean =
+        diagram.nodes.none { it.kind.isPoolOrLane } && diagram.nodes.any { it.id.isNotEmpty() }
+
     fun layout(diagram: BpmnDiagram) {
         val context = LayoutContext(diagram)
         var cursorY = ORIGIN_Y

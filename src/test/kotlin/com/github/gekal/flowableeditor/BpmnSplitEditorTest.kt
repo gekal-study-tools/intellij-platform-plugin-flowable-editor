@@ -23,7 +23,7 @@ class BpmnSplitEditorTest : BasePlatformTestCase() {
     override fun getTestDataPath(): String = "src/test/testData"
 
     private fun openPreview(fileName: String): Pair<BpmnTextEditorWithPreview, BpmnPreviewFileEditor> {
-        myFixture.configureByFile(fileName)
+        myFixture.configureFromTestData(fileName)
         val virtualFile = myFixture.file.virtualFile
 
         val provider = BpmnSplitEditorProvider()

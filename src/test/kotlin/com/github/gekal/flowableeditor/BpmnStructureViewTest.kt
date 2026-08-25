@@ -12,7 +12,7 @@ class BpmnStructureViewTest : BasePlatformTestCase() {
     override fun getTestDataPath(): String = "src/test/testData"
 
     private fun rootChildren(fileName: String): List<TreeElement> {
-        myFixture.configureByFile(fileName)
+        myFixture.configureFromTestData(fileName)
         val builder = BpmnStructureViewBuilderProvider()
             .createStructureViewBuilder(myFixture.file as XmlFile)
         assertTrue("a tree based builder is returned", builder is TreeBasedStructureViewBuilder)

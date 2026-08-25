@@ -12,7 +12,7 @@ class BpmnModelParserTest : BasePlatformTestCase() {
     override fun getTestDataPath(): String = "src/test/testData"
 
     private fun parse(fileName: String): BpmnDiagram {
-        myFixture.configureByFile(fileName)
+        myFixture.configureFromTestData(fileName)
         return BpmnModelParser.parse(myFixture.file as XmlFile)
     }
 

@@ -111,9 +111,12 @@ object BpmnAutoLayout {
         val innerLeft = containers.values.minOf { it.x } + LANE_INSET
         val shiftX = innerLeft - laid.minOf { it.bounds!!.x }
 
+        // 帯に入りきらない要素があるなら、先に帯の高さを決め直す
+        val bands = resizeLanes(diagram, containers, laneOf)
+
         for (node in laid) {
             val bounds = node.bounds ?: continue
-            val lane = laneOf[node.id]?.let { containers[it] }
+            val lane = laneOf[node.id]?.let { bands[it] }
             val shiftedX = bounds.x + shiftX
             node.bounds = if (lane == null) {
                 bounds.translate(shiftX, 0.0)
@@ -123,27 +126,91 @@ object BpmnAutoLayout {
             }
         }
 
-        growContainers(diagram, containers)
+        growContainers(diagram, containers, bands)
     }
 
-    /** 中身がはみ出した区画を広げる。 */
-    private fun growContainers(diagram: BpmnDiagram, containers: Map<String, BpmnBounds>) {
+    /**
+     * 帯の高さを中身に合わせ直し、上から順に積み直す。
+     *
+     * 帯より背の高い要素があると、そのままでは帯からはみ出す。
+     * 要素を縮めるわけにはいかないので、帯のほうを広げて下の帯をずらす。
+     * 返すのは新しい帯の位置。
+     */
+    private fun resizeLanes(
+        diagram: BpmnDiagram,
+        containers: Map<String, BpmnBounds>,
+        laneOf: Map<String, String>,
+    ): Map<String, BpmnBounds> {
+        val lanes = diagram.nodes.filter { it.kind == BpmnElementKind.LANE && it.id.isNotEmpty() }
+        if (lanes.isEmpty()) return containers
+
+        val heights = HashMap<String, Double>()
+        for (lane in lanes) {
+            val original = containers[lane.id] ?: continue
+            val tallest = diagram.nodes
+                .filter { laneOf[it.id] == lane.id }
+                .mapNotNull { it.bounds?.height }
+                .maxOrNull() ?: 0.0
+            heights[lane.id] = maxOf(original.height, tallest + LANE_INSET)
+        }
+
+        // もとの並び順のまま、上から積み直す
+        val ordered = lanes
+            .filter { containers.containsKey(it.id) }
+            .sortedBy { containers.getValue(it.id).y }
+        val result = HashMap(containers)
+        var top = ordered.firstOrNull()?.let { containers.getValue(it.id).y } ?: return containers
+        for (lane in ordered) {
+            val original = containers.getValue(lane.id)
+            val height = heights[lane.id] ?: original.height
+            val placed = BpmnBounds(original.x, top, original.width, height)
+            result[lane.id] = placed
+            lane.bounds = placed
+            top += height
+        }
+        return result
+    }
+
+    /** 中身やレーンがはみ出した区画を広げる。 */
+    private fun growContainers(
+        diagram: BpmnDiagram,
+        containers: Map<String, BpmnBounds>,
+        bands: Map<String, BpmnBounds>,
+    ) {
         val laidRight = diagram.nodes
             .filter { !it.kind.isPoolOrLane }
             .mapNotNull { it.bounds?.right }
             .maxOrNull() ?: return
 
+        val lanes = diagram.nodes.filter { it.kind == BpmnElementKind.LANE && it.id.isNotEmpty() }
+
         for (node in diagram.nodes) {
-            if (!node.kind.isPoolOrLane) continue
-            val original = containers[node.id] ?: continue
-            val needed = laidRight + LANE_INSET - original.x
-            node.bounds = if (needed > original.width) {
-                BpmnBounds(original.x, original.y, needed, original.height)
-            } else {
-                original
+            if (node.kind != BpmnElementKind.POOL) {
+                // レーンは resizeLanes が決めた位置のまま。幅だけ合わせる。
+                if (node.kind == BpmnElementKind.LANE) {
+                    val band = bands[node.id] ?: continue
+                    val width = maxOf(band.width, laidRight + LANE_INSET - band.x)
+                    node.bounds = BpmnBounds(band.x, band.y, width, band.height)
+                }
+                continue
             }
+
+            val original = containers[node.id] ?: continue
+            // 中に入っているレーンを全部覆う高さにする
+            val ownLanes = lanes.mapNotNull { bands[it.id] }.filter { encloses(original, it) }
+            val bottom = ownLanes.maxOfOrNull { it.bottom } ?: original.bottom
+            node.bounds = BpmnBounds(
+                original.x,
+                original.y,
+                maxOf(original.width, laidRight + LANE_INSET - original.x),
+                maxOf(original.height, bottom - original.y),
+            )
         }
     }
+
+    /** [outer] の横の範囲に [inner] が収まっているか。帯とプールの対応付けに使う。 */
+    private fun encloses(outer: BpmnBounds, inner: BpmnBounds): Boolean =
+        inner.x >= outer.x - 1 && inner.right <= outer.right + 1
 
     fun layout(diagram: BpmnDiagram) {
         val context = LayoutContext(diagram)

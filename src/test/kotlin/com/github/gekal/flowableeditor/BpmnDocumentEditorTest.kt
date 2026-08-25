@@ -799,4 +799,124 @@ class BpmnDocumentEditorTest : BasePlatformTestCase() {
                 event.centerY >= host.y && event.centerY <= host.bottom + 1,
         )
     }
+
+    // --- プールをまたぐ移動 --------------------------------------------------
+
+    /** 2 つのプールを持つ図を作り、2 つ目のプールの id を返す。 */
+    private fun withSecondPool(file: XmlFile): String = requireNotNull(
+        BpmnDocumentEditor.createElement(
+            project, file, reparse(file), BpmnPaletteItem.POOL,
+            BpmnBounds(100.0, 500.0, 600.0, 250.0), null, "add",
+        ),
+    )
+
+    fun `test moving an element into another pool moves it to that process`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+        val pool2 = withSecondPool(file)
+        val process2 = file.text
+            .substringAfter("""id="$pool2"""")
+            .substringAfter("processRef=\"")
+            .substringBefore("\"")
+
+        // end を 2 つ目のプールの中へ動かす
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("end" to BpmnBounds(300.0, 600.0, 30.0, 30.0)),
+            "move",
+        )
+
+        val movedProcess = file.text
+            .substringAfter("""<process id="$process2"""")
+            .substringBefore("</process>")
+        assertTrue("移した先のプロセスに入る", movedProcess.contains("""id="end""""))
+        val original = file.text.substringAfter("""<process id="salesProcess"""").substringBefore("</process>")
+        assertFalse("元のプロセスからは外れる", original.contains("""id="end""""))
+    }
+
+    fun `test a flow that ends up crossing pools becomes a message flow`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+        withSecondPool(file)
+        assertTrue("はじめはシーケンスフロー", file.text.contains("""<sequenceFlow id="f1""""))
+
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("end" to BpmnBounds(300.0, 600.0, 30.0, 30.0)),
+            "move",
+        )
+
+        assertTrue("プールをまたぐのでメッセージフローになる", file.text.contains("""<messageFlow id="f1""""))
+        assertFalse(file.text.contains("""<sequenceFlow id="f1""""))
+    }
+
+    fun `test bringing an element back makes the flow a sequence flow again`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+        withSecondPool(file)
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("end" to BpmnBounds(300.0, 600.0, 30.0, 30.0)),
+            "move",
+        )
+        assertTrue(file.text.contains("<messageFlow"))
+
+        // 元のプールへ戻す
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("end" to BpmnBounds(600.0, 145.0, 30.0, 30.0)),
+            "move",
+        )
+
+        assertTrue("同じプロセスに戻ればシーケンスフローに戻る", file.text.contains("""<sequenceFlow id="f1""""))
+        assertFalse(file.text.contains("<messageFlow"))
+    }
+
+    fun `test the connection keeps its diagram information across the change`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+        withSecondPool(file)
+
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf("end" to BpmnBounds(300.0, 600.0, 30.0, 30.0)),
+            "move",
+        )
+
+        // id を変えていないので図形情報はそのまま使える
+        val flow = reparse(file).edges.first { it.id == "f1" }
+        assertTrue("線が図から消えない", flow.waypoints.size >= 2)
+    }
+
+    // --- 帯の高さ ------------------------------------------------------------
+
+    fun `test rearranging grows a lane that is too short for its contents`() {
+        val (file, _) = open("collaborationWithLanes.bpmn20.xml")
+        // 背の高い要素を上のレーンへ入れる (帯は 125 しかない)
+        val tall = BpmnDocumentEditor.createElement(
+            project, file, reparse(file), BpmnPaletteItem.SUB_PROCESS,
+            BpmnBounds(300.0, 120.0, 200.0, 200.0), null, "add",
+        )
+        BpmnDocumentEditor.setBounds(
+            project, file, reparse(file),
+            mapOf(tall!! to BpmnBounds(300.0, 110.0, 200.0, 200.0)),
+            "move",
+        )
+
+        val arranged = reparse(file)
+        BpmnAutoLayout.relayout(arranged)
+        BpmnDocumentEditor.applyLayout(project, file, arranged, "layout")
+
+        val updated = reparse(file)
+        val lane1 = updated.nodesById.getValue("lane1").bounds!!
+        val subProcess = updated.nodesById.getValue(tall).bounds!!
+        // 整列は要素の大きさも決め直すので、帯が「元の 125 より広がったか」で見る
+        assertTrue("帯が中身に合わせて広がる (lane=$lane1, node=$subProcess)", lane1.height > 125.0)
+        assertTrue(
+            "要素が帯からはみ出さない (lane=$lane1, node=$subProcess)",
+            subProcess.y >= lane1.y - 1 && subProcess.bottom <= lane1.bottom + 1,
+        )
+
+        // 下の帯は押し下げられ、プールは全部を覆う
+        val lane2 = updated.nodesById.getValue("lane2").bounds!!
+        val pool = updated.nodesById.getValue("pool1").bounds!!
+        assertTrue("下の帯が重ならない", lane2.y >= lane1.bottom - 1)
+        assertTrue("プールが帯を覆う", pool.bottom >= lane2.bottom - 1)
+    }
 }

@@ -64,8 +64,114 @@ object BpmnDocumentEditor {
                 writeShapeBounds(root, id, box)
             }
             rerouteConnected(root, diagram, expanded)
+            updateProcessMembership(root, file, diagram, expanded)
             updateLaneMembership(root, diagram, expanded)
         }
+    }
+
+    /**
+     * プールをまたいで動かした要素を、そのプールのプロセスへ移す。
+     *
+     * BPMN ではプールはプロセスそのもの。図で別のプールへ移したのに定義上は
+     * 元のプロセスに居る、という状態は実行時の意味が変わってしまう。
+     * 移した結果プロセスをまたぐことになったシーケンスフローは、
+     * メッセージフローに直す。プールをまたぐシーケンスフローは BPMN では作れない。
+     */
+    private fun updateProcessMembership(
+        root: XmlTag,
+        file: XmlFile,
+        diagram: BpmnDiagram,
+        movedBounds: Map<String, BpmnBounds>,
+    ) {
+        val pools = diagram.nodes.filter { it.kind == BpmnElementKind.POOL && it.id.isNotEmpty() }
+        if (pools.isEmpty()) return
+
+        var moved = false
+        for ((id, bounds) in movedBounds) {
+            val node = diagram.nodesById[id] ?: continue
+            if (node.kind.isPoolOrLane) continue
+
+            val poolId = pools.firstOrNull { it.bounds?.contains(bounds.centerX, bounds.centerY) == true }?.id
+                ?: continue
+            val targetProcessId = findModelElement(file, poolId)?.getAttributeValue("processRef") ?: continue
+            val target = root.subTags.firstOrNull {
+                it.localName == "process" && it.getAttributeValue("id") == targetProcessId
+            } ?: continue
+
+            val element = findModelElement(file, id) ?: continue
+            if (processOf(element)?.getAttributeValue("id") == targetProcessId) continue
+
+            // 元の場所から切り離して、移した先へ入れ直す
+            val copy = element.copy() as XmlTag
+            element.delete()
+            target.addSubTag(copy, false)
+            moved = true
+        }
+
+        if (moved) fixCrossProcessFlows(root, file)
+    }
+
+    /** その要素を含んでいるプロセス。 */
+    private fun processOf(element: XmlTag): XmlTag? {
+        var current: XmlTag? = element.parentTag
+        while (current != null) {
+            if (current.localName == "process") return current
+            current = current.parentTag
+        }
+        return null
+    }
+
+    /**
+     * プロセスをまたいでしまった線を直す。
+     *
+     * シーケンスフローは 1 つのプロセスの中でしか使えないので、またぐものは
+     * メッセージフローにする。逆に、同じプロセスに収まったメッセージフローは
+     * シーケンスフローに戻す。
+     */
+    private fun fixCrossProcessFlows(root: XmlTag, file: XmlFile) {
+        val collaboration = root.subTags.firstOrNull { it.localName == "collaboration" } ?: return
+
+        for (flow in collectFlows(root)) {
+            if (flow.localName == "association") continue
+            val sourceProcess = flow.getAttributeValue("sourceRef")
+                ?.let { findModelElement(file, it) }
+                ?.let { processOf(it)?.getAttributeValue("id") }
+            val targetProcess = flow.getAttributeValue("targetRef")
+                ?.let { findModelElement(file, it) }
+                ?.let { processOf(it)?.getAttributeValue("id") }
+            if (sourceProcess == null || targetProcess == null) continue
+
+            val crosses = sourceProcess != targetProcess
+            when {
+                crosses && flow.localName == "sequenceFlow" ->
+                    retagFlow(flow, "messageFlow", collaboration)
+
+                !crosses && flow.localName == "messageFlow" -> {
+                    val process = root.subTags.firstOrNull {
+                        it.localName == "process" && it.getAttributeValue("id") == sourceProcess
+                    } ?: continue
+                    retagFlow(flow, "sequenceFlow", process)
+                }
+            }
+        }
+    }
+
+    /**
+     * 線の種類を変える。id は変えないので、対応する図形情報 (BPMNEdge) はそのまま使える。
+     */
+    private fun retagFlow(flow: XmlTag, tagName: String, container: XmlTag) {
+        val id = flow.getAttributeValue("id") ?: return
+        val sourceRef = flow.getAttributeValue("sourceRef") ?: return
+        val targetRef = flow.getAttributeValue("targetRef") ?: return
+        val name = flow.getAttributeValue("name")
+
+        flow.delete()
+        val replacement = container.createChildTag(tagName, container.namespace, null, false)
+        val added = container.addSubTag(replacement, false)
+        added.setAttribute("id", id)
+        added.setAttribute("sourceRef", sourceRef)
+        added.setAttribute("targetRef", targetRef)
+        name?.let { added.setAttribute("name", it) }
     }
 
     /**
